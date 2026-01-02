@@ -2,10 +2,12 @@
 package ollama
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -97,4 +99,82 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	return modelsResp.Models, nil
+}
+
+// PullProgressCallback is called with progress updates during model pull.
+type PullProgressCallback func(status string, completed, total int64)
+
+// PullModel downloads a model from the Ollama registry.
+func (c *Client) PullModel(ctx context.Context, model string, callback PullProgressCallback) error {
+	url := c.baseURL + "/api/pull"
+
+	body := fmt.Sprintf(`{"name": "%s", "stream": true}`, model)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use a client without timeout for long downloads
+	pullClient := &http.Client{}
+	resp, err := pullClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	// Read streaming progress
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var progress struct {
+			Status    string `json:"status"`
+			Completed int64  `json:"completed"`
+			Total     int64  `json:"total"`
+			Error     string `json:"error"`
+		}
+
+		if err := json.Unmarshal(line, &progress); err != nil {
+			continue
+		}
+
+		if progress.Error != "" {
+			return fmt.Errorf("pull error: %s", progress.Error)
+		}
+
+		if callback != nil {
+			callback(progress.Status, progress.Completed, progress.Total)
+		}
+	}
+
+	return scanner.Err()
+}
+
+// HasModel checks if a model is available locally.
+func (c *Client) HasModel(ctx context.Context, model string) bool {
+	models, err := c.ListModels(ctx)
+	if err != nil {
+		return false
+	}
+
+	for _, m := range models {
+		if m.Name == model || strings.HasPrefix(m.Name, model+":") {
+			return true
+		}
+	}
+	return false
 }

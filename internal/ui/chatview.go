@@ -90,7 +90,7 @@ func (cv *ChatView) onSendMessage(text string) {
 
 	// Validate model is selected
 	if cv.currentModel == "" {
-		cv.handleError(fmt.Errorf("no model selected - please install a model with 'ollama pull <model>'"))
+		cv.handleError(fmt.Errorf("please enter a model name (e.g., llama3.2)"))
 		return
 	}
 
@@ -107,8 +107,67 @@ func (cv *ChatView) onSendMessage(text string) {
 		cv.db.AddMessage(cv.currentChat.ID, store.RoleUser, text)
 	}
 
-	// Start streaming response
-	cv.startStreaming(text)
+	// Check if model exists, pull if needed, then stream
+	cv.ensureModelAndStream(text)
+}
+
+func (cv *ChatView) ensureModelAndStream(userMessage string) {
+	ctx := context.Background()
+
+	// Check if model exists locally
+	if cv.ollamaClient.HasModel(ctx, cv.currentModel) {
+		cv.startStreaming(userMessage)
+		return
+	}
+
+	// Model not found, need to pull it
+	cv.isStreaming = true
+	cv.inputArea.SetInputSensitive(false)
+
+	// Create a status bubble to show download progress
+	cv.currentBubble = cv.addMessage(store.RoleSystem, "Downloading model "+cv.currentModel+"...")
+
+	go func() {
+		err := cv.ollamaClient.PullModel(ctx, cv.currentModel, func(status string, completed, total int64) {
+			var progressText string
+			if total > 0 {
+				percent := float64(completed) / float64(total) * 100
+				progressText = fmt.Sprintf("Downloading %s: %s (%.1f%%)", cv.currentModel, status, percent)
+			} else {
+				progressText = fmt.Sprintf("Downloading %s: %s", cv.currentModel, status)
+			}
+
+			glib.IdleAdd(func() {
+				cv.currentBubble.SetContent(progressText)
+				cv.scrollToBottom()
+			})
+		})
+
+		glib.IdleAdd(func() {
+			if err != nil {
+				cv.currentBubble.SetContent("Failed to download model: " + err.Error())
+				cv.isStreaming = false
+				cv.inputArea.SetInputSensitive(true)
+				cv.inputArea.Focus()
+				return
+			}
+
+			// Remove the download status bubble
+			cv.messagesBox.Remove(cv.currentBubble)
+			// Remove from messages slice
+			for i, bubble := range cv.messages {
+				if bubble == cv.currentBubble {
+					cv.messages = append(cv.messages[:i], cv.messages[i+1:]...)
+					break
+				}
+			}
+			cv.currentBubble = nil
+			cv.isStreaming = false
+
+			// Now start the actual chat
+			cv.startStreaming(userMessage)
+		})
+	}()
 }
 
 func (cv *ChatView) createNewChat() {

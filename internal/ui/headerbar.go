@@ -7,12 +7,17 @@ import (
 	"github.com/storo/guanaco/internal/ollama"
 )
 
+const (
+	// DefaultModel is the default model to use.
+	DefaultModel = "llama3.2"
+)
+
 // HeaderBar is the application header bar with model selector.
 type HeaderBar struct {
 	*adw.HeaderBar
 
 	// UI components
-	modelDropdown *gtk.DropDown
+	modelEntry    *gtk.Entry
 	newChatButton *gtk.Button
 	menuButton    *gtk.MenuButton
 
@@ -26,7 +31,9 @@ type HeaderBar struct {
 
 // NewHeaderBar creates a new header bar.
 func NewHeaderBar() *HeaderBar {
-	hb := &HeaderBar{}
+	hb := &HeaderBar{
+		currentModel: DefaultModel,
+	}
 
 	hb.HeaderBar = adw.NewHeaderBar()
 	hb.SetShowStartTitleButtons(true)
@@ -44,10 +51,23 @@ func (hb *HeaderBar) setupUI() {
 	hb.menuButton.SetTooltipText("Main Menu")
 	hb.PackStart(hb.menuButton)
 
-	// Model dropdown (will be populated later)
-	hb.modelDropdown = gtk.NewDropDownFromStrings([]string{"No models"})
-	hb.modelDropdown.SetSensitive(false)
-	hb.SetTitleWidget(hb.modelDropdown)
+	// Model entry - editable text field for model name
+	hb.modelEntry = gtk.NewEntry()
+	hb.modelEntry.SetText(DefaultModel)
+	hb.modelEntry.SetPlaceholderText("Model name (e.g., llama3.2)")
+	hb.modelEntry.SetWidthChars(20)
+	hb.modelEntry.SetMaxWidthChars(30)
+	hb.modelEntry.AddCSSClass("model-entry")
+
+	// Update model when text changes
+	hb.modelEntry.ConnectChanged(func() {
+		hb.currentModel = hb.modelEntry.Text()
+		if hb.onModelChanged != nil {
+			hb.onModelChanged(hb.currentModel)
+		}
+	})
+
+	hb.SetTitleWidget(hb.modelEntry)
 
 	// New chat button
 	hb.newChatButton = gtk.NewButton()
@@ -57,55 +77,29 @@ func (hb *HeaderBar) setupUI() {
 	hb.PackEnd(hb.newChatButton)
 }
 
-// SetModels updates the model dropdown with available models.
+// SetModels updates suggestions based on available models.
 func (hb *HeaderBar) SetModels(models []ollama.Model) {
 	hb.models = models
 
-	if len(models) == 0 {
-		hb.modelDropdown.SetSensitive(false)
-		return
-	}
-
-	// Create string list for dropdown
-	names := make([]string, len(models))
-	for i, m := range models {
-		names[i] = m.Name
-	}
-
-	// Replace dropdown with new one containing models
-	newDropdown := gtk.NewDropDownFromStrings(names)
-	newDropdown.SetSensitive(true)
-
-	// Connect to selection changes using NotifyProperty
-	newDropdown.NotifyProperty("selected", func() {
-		hb.onModelSelected()
-	})
-
-	hb.SetTitleWidget(newDropdown)
-	hb.modelDropdown = newDropdown
-
-	// Set first model as current
-	if len(models) > 0 {
+	// If we have models and current is default, use first available
+	if len(models) > 0 && hb.currentModel == DefaultModel {
 		hb.currentModel = models[0].Name
+		hb.modelEntry.SetText(hb.currentModel)
 	}
 }
 
-func (hb *HeaderBar) onModelSelected() {
-	selected := hb.modelDropdown.Selected()
-	if int(selected) < len(hb.models) {
-		hb.currentModel = hb.models[selected].Name
-		if hb.onModelChanged != nil {
-			hb.onModelChanged(hb.currentModel)
-		}
-	}
-}
-
-// CurrentModel returns the currently selected model name.
+// CurrentModel returns the currently entered model name.
 func (hb *HeaderBar) CurrentModel() string {
-	return hb.currentModel
+	return hb.modelEntry.Text()
 }
 
-// OnModelChanged sets the callback for when the selected model changes.
+// SetModel sets the current model.
+func (hb *HeaderBar) SetModel(model string) {
+	hb.currentModel = model
+	hb.modelEntry.SetText(model)
+}
+
+// OnModelChanged sets the callback for when the model changes.
 func (hb *HeaderBar) OnModelChanged(callback func(string)) {
 	hb.onModelChanged = callback
 }
