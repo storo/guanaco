@@ -68,8 +68,9 @@ func (h *StreamHandler) Chat(ctx context.Context, req *ChatRequest, callback Tok
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Send request
-	resp, err := h.client.httpClient.Do(httpReq)
+	// Use a client without timeout for streaming (model loading can take time)
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
