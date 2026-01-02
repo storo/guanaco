@@ -19,6 +19,9 @@ type HeaderBar struct {
 	// State
 	models       []ollama.Model
 	currentModel string
+
+	// Callbacks
+	onModelChanged func(string)
 }
 
 // NewHeaderBar creates a new header bar.
@@ -91,12 +94,20 @@ func (hb *HeaderBar) onModelSelected() {
 	selected := hb.modelDropdown.Selected()
 	if int(selected) < len(hb.models) {
 		hb.currentModel = hb.models[selected].Name
+		if hb.onModelChanged != nil {
+			hb.onModelChanged(hb.currentModel)
+		}
 	}
 }
 
 // CurrentModel returns the currently selected model name.
 func (hb *HeaderBar) CurrentModel() string {
 	return hb.currentModel
+}
+
+// OnModelChanged sets the callback for when the selected model changes.
+func (hb *HeaderBar) OnModelChanged(callback func(string)) {
+	hb.onModelChanged = callback
 }
 
 // OnNewChat sets the callback for when the new chat button is clicked.

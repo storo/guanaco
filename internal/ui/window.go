@@ -73,6 +73,7 @@ func (w *MainWindow) setupUI() {
 	// Create header bar
 	w.headerBar = NewHeaderBar()
 	w.headerBar.OnNewChat(w.onNewChat)
+	w.headerBar.OnModelChanged(w.onModelChanged)
 
 	// Create split view for sidebar and content
 	w.splitView = adw.NewNavigationSplitView()
@@ -161,7 +162,7 @@ func (w *MainWindow) loadModels() {
 
 	models, err := w.ollamaClient.ListModels(ctx)
 	if err != nil {
-		w.showToast("Failed to load models")
+		w.showToast("Failed to load models: " + err.Error())
 		return
 	}
 
@@ -171,6 +172,8 @@ func (w *MainWindow) loadModels() {
 	if len(models) > 0 {
 		w.chatView.SetModel(models[0].Name)
 		w.showToast(fmt.Sprintf("Loaded %d models", len(models)))
+	} else {
+		w.showToast("No models found. Run: ollama pull llama3.2")
 	}
 }
 
@@ -180,6 +183,10 @@ func (w *MainWindow) onNewChat() {
 	if model != "" {
 		w.chatView.SetModel(model)
 	}
+}
+
+func (w *MainWindow) onModelChanged(model string) {
+	w.chatView.SetModel(model)
 }
 
 func (w *MainWindow) onChatSelected(chat *store.Chat) {

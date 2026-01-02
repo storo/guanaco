@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
@@ -84,6 +85,12 @@ func (cv *ChatView) onSendMessage(text string) {
 
 	text = strings.TrimSpace(text)
 	if text == "" {
+		return
+	}
+
+	// Validate model is selected
+	if cv.currentModel == "" {
+		cv.handleError(fmt.Errorf("no model selected - please install a model with 'ollama pull <model>'"))
 		return
 	}
 
