@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.storo.Guanaco</id>
+  <name>Guanaco</name>
+  <summary>Chat with local AI models</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Guanaco is a modern desktop application for chatting with local AI models
+      powered by Ollama. It provides a clean, native interface that integrates
+      seamlessly with your Linux desktop.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Stream responses in real-time as the AI generates them</li>
+      <li>Beautiful markdown rendering with code highlighting</li>
+      <li>Drag and drop documents (PDF, TXT, Markdown) for context</li>
+      <li>Persistent chat history stored locally</li>
+      <li>Auto-download models when they are not installed</li>
+      <li>Native GTK4/Libadwaita interface following GNOME HIG</li>
+    </ul>
+  </description>
+
+  <categories>
+    <category>Utility</category>
+    <category>Chat</category>
+  </categories>
+
+  <keywords>
+    <keyword>AI</keyword>
+    <keyword>LLM</keyword>
+    <keyword>Chat</keyword>
+    <keyword>Ollama</keyword>
+    <keyword>Llama</keyword>
+    <keyword>Local AI</keyword>
+  </keywords>
+
+  <url type="homepage">https://github.com/storo/guanaco</url>
+  <url type="bugtracker">https://github.com/storo/guanaco/issues</url>
+
+  <launchable type="desktop-id">com.github.storo.Guanaco.desktop</launchable>
+
+  <provides>
+    <binary>guanaco</binary>
+  </provides>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#8B5CF6</color>
+    <color type="primary" scheme_preference="dark">#6D28D9</color>
+  </branding>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main chat interface</caption>
+      <image>https://raw.githubusercontent.com/storo/guanaco/main/screenshots/main.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="0.1.0" date="2026-01-02">
+      <description>
+        <p>Initial release with core features:</p>
+        <ul>
+          <li>Chat with local Ollama models</li>
+          <li>Streaming responses</li>
+          <li>Markdown rendering</li>
+          <li>Document attachment (drag and drop)</li>
+          <li>Chat history persistence</li>
+          <li>Spanish translation</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+
+  <developer id="com.github.storo">
+    <name>storo</name>
+  </developer>
+</component>

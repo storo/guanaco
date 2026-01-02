@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6"/>
+      <stop offset="100%" style="stop-color:#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="llama" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FEF3C7"/>
+      <stop offset="100%" style="stop-color:#FCD34D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#bg)"/>
+
+  <!-- Llama head silhouette -->
+  <g transform="translate(28, 24)">
+    <!-- Neck -->
+    <path d="M30 80 Q25 60 30 40 Q32 30 38 25 Q44 20 50 22 Q56 24 58 32 Q60 40 58 60 Q56 80 50 80 Z"
+          fill="url(#llama)" stroke="#D97706" stroke-width="2"/>
+
+    <!-- Head -->
+    <ellipse cx="44" cy="22" rx="18" ry="14" fill="url(#llama)" stroke="#D97706" stroke-width="2"/>
+
+    <!-- Ear left -->
+    <path d="M28 18 Q26 8 30 4 Q34 8 32 18" fill="url(#llama)" stroke="#D97706" stroke-width="2"/>
+
+    <!-- Ear right -->
+    <path d="M56 18 Q58 8 54 4 Q50 8 52 18" fill="url(#llama)" stroke="#D97706" stroke-width="2"/>
+
+    <!-- Eye -->
+    <circle cx="38" cy="20" r="3" fill="#1F2937"/>
+    <circle cx="37" cy="19" r="1" fill="white"/>
+
+    <!-- Nose -->
+    <ellipse cx="30" cy="28" rx="4" ry="3" fill="#92400E"/>
+
+    <!-- Mouth -->
+    <path d="M28 32 Q30 35 34 32" stroke="#92400E" stroke-width="1.5" fill="none"/>
+  </g>
+
+  <!-- Chat bubble -->
+  <g transform="translate(68, 58)">
+    <path d="M0 0 L36 0 Q42 0 42 6 L42 24 Q42 30 36 30 L12 30 L6 38 L6 30 L6 30 Q0 30 0 24 Z"
+          fill="white" fill-opacity="0.95"/>
+    <!-- Dots in chat bubble -->
+    <circle cx="12" cy="15" r="3" fill="#8B5CF6"/>
+    <circle cx="21" cy="15" r="3" fill="#8B5CF6"/>
+    <circle cx="30" cy="15" r="3" fill="#8B5CF6"/>
+  </g>
+</svg>

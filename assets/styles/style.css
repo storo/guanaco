@@ -1,0 +1,72 @@
+/* Guanaco Application Styles */
+
+/* Message bubbles */
+.message-bubble {
+  margin: 4px 12px;
+}
+
+.message-user .card {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
+.message-assistant .card {
+  background-color: @card_bg_color;
+}
+
+.message-system .card {
+  background-color: alpha(@accent_bg_color, 0.2);
+  font-style: italic;
+}
+
+/* Input area */
+.input-area {
+  background-color: @card_bg_color;
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.input-textview {
+  background: transparent;
+}
+
+.input-scrolled {
+  background: transparent;
+  border: none;
+}
+
+/* Model entry in header */
+.model-entry {
+  min-width: 180px;
+}
+
+/* Attachment pill */
+.attachment-pill {
+  padding: 4px 8px;
+  border-radius: 16px;
+  background-color: alpha(@accent_bg_color, 0.15);
+}
+
+.attachment-pill:hover {
+  background-color: alpha(@accent_bg_color, 0.25);
+}
+
+/* Sidebar chat list */
+.chat-list-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.chat-list-item:hover {
+  background-color: alpha(@accent_bg_color, 0.1);
+}
+
+.chat-list-item:selected {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
+/* Status page */
+.status-page {
+  padding: 24px;
+}
