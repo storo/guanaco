@@ -11,6 +11,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/storo/guanaco/internal/config"
+	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 	"github.com/storo/guanaco/internal/store"
 )
@@ -63,9 +64,10 @@ func (w *MainWindow) initDatabase() {
 	db, err := store.NewDB(dbPath)
 	if err != nil {
 		// Log error but continue - app can work without persistence
-		fmt.Printf("Warning: failed to open database: %v\n", err)
+		logger.Error("Failed to open database", "path", dbPath, "error", err)
 		return
 	}
+	logger.Info("Database opened", "path", dbPath)
 	w.db = db
 }
 
@@ -162,6 +164,7 @@ func (w *MainWindow) loadModels() {
 
 	models, err := w.ollamaClient.ListModels(ctx)
 	if err != nil {
+		logger.Error("Failed to load models", "error", err)
 		w.showToast("Failed to load models: " + err.Error())
 		return
 	}
@@ -171,8 +174,10 @@ func (w *MainWindow) loadModels() {
 	// Set current model in chat view
 	if len(models) > 0 {
 		w.chatView.SetModel(models[0].Name)
+		logger.Info("Models loaded", "count", len(models))
 		w.showToast(fmt.Sprintf("Loaded %d models", len(models)))
 	} else {
+		logger.Warn("No models found")
 		w.showToast("No models found. Run: ollama pull llama3.2")
 	}
 }
@@ -200,6 +205,7 @@ func (w *MainWindow) showToast(message string) {
 }
 
 func (w *MainWindow) onStartOllama() {
+	logger.Info("Attempting to start Ollama")
 	w.showToast("Starting Ollama...")
 
 	// Start ollama serve in background
@@ -208,6 +214,7 @@ func (w *MainWindow) onStartOllama() {
 		err := cmd.Start()
 
 		if err != nil {
+			logger.Error("Failed to start Ollama", "error", err)
 			glib.IdleAdd(func() {
 				w.showToast("Failed to start Ollama: " + err.Error())
 			})
@@ -221,6 +228,7 @@ func (w *MainWindow) onStartOllama() {
 		glib.IdleAdd(func() {
 			w.checkOllamaHealth()
 			if w.ollamaHealthy {
+				logger.Info("Ollama started successfully")
 				w.showToast("Ollama started successfully!")
 				w.toastOverlay.SetChild(w.splitView)
 			}

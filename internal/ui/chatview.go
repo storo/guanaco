@@ -11,6 +11,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 	"github.com/storo/guanaco/internal/rag"
 	"github.com/storo/guanaco/internal/store"
@@ -168,6 +169,7 @@ func (cv *ChatView) onAttachFile() {
 
 func (cv *ChatView) processAndAttachFile(path string) {
 	filename := filepath.Base(path)
+	logger.Info("Processing file attachment", "path", path)
 
 	// Check if file type is supported
 	if !cv.ragProcessor.CanProcess(filename) {
@@ -185,6 +187,7 @@ func (cv *ChatView) processAndAttachFile(path string) {
 				return
 			}
 
+			logger.Info("File processed successfully", "filename", result.Filename, "tokens", result.TokenEstimate)
 			// Create and add attachment pill
 			pill := NewAttachmentPill(result.Filename, result.Content)
 			cv.inputArea.AddAttachment(pill)
@@ -272,9 +275,12 @@ func (cv *ChatView) ensureModelAndStream(userMessage string) {
 
 	// Check if model exists locally
 	if cv.ollamaClient.HasModel(ctx, cv.currentModel) {
+		logger.Debug("Model available locally", "model", cv.currentModel)
 		cv.startStreaming(userMessage)
 		return
 	}
+
+	logger.Info("Model not found, pulling", "model", cv.currentModel)
 
 	// Model not found, need to pull it
 	cv.isStreaming = true
@@ -436,6 +442,7 @@ func (cv *ChatView) scrollToBottom() {
 }
 
 func (cv *ChatView) handleError(err error) {
+	logger.Error("ChatView error", "error", err)
 	if cv.onError != nil {
 		cv.onError(err)
 	}
