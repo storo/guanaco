@@ -1,0 +1,7 @@
+This is a sample text file for testing.
+
+It contains multiple paragraphs and some special characters: áéíóú ñ.
+
+This is the third paragraph with more content for chunking tests.
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
