@@ -3,9 +3,12 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/glib/v2"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/storo/guanaco/internal/config"
 	"github.com/storo/guanaco/internal/ollama"
@@ -97,7 +100,30 @@ func (w *MainWindow) setupUI() {
 	w.statusPage = adw.NewStatusPage()
 	w.statusPage.SetIconName("dialog-warning-symbolic")
 	w.statusPage.SetTitle("Ollama Not Detected")
-	w.statusPage.SetDescription("Guanaco requires Ollama to be running.\nPlease start Ollama and restart the application.")
+	w.statusPage.SetDescription("Guanaco requires Ollama to be running.\nClick the button below to start Ollama.")
+
+	// Button box for status page actions
+	buttonBox := gtk.NewBox(gtk.OrientationHorizontal, 12)
+	buttonBox.SetHAlign(gtk.AlignCenter)
+
+	// Start Ollama button
+	startButton := gtk.NewButton()
+	startButton.SetLabel("Start Ollama")
+	startButton.AddCSSClass("suggested-action")
+	startButton.AddCSSClass("pill")
+	startButton.ConnectClicked(w.onStartOllama)
+	buttonBox.Append(startButton)
+
+	// Retry button
+	retryButton := gtk.NewButton()
+	retryButton.SetLabel("Retry Connection")
+	retryButton.AddCSSClass("pill")
+	retryButton.ConnectClicked(func() {
+		w.checkOllamaHealth()
+	})
+	buttonBox.Append(retryButton)
+
+	w.statusPage.SetChild(buttonBox)
 
 	// Toast overlay wraps content
 	w.toastOverlay = adw.NewToastOverlay()
@@ -164,4 +190,33 @@ func (w *MainWindow) showToast(message string) {
 	toast := adw.NewToast(message)
 	toast.SetTimeout(3)
 	w.toastOverlay.AddToast(toast)
+}
+
+func (w *MainWindow) onStartOllama() {
+	w.showToast("Starting Ollama...")
+
+	// Start ollama serve in background
+	go func() {
+		cmd := exec.Command("ollama", "serve")
+		err := cmd.Start()
+
+		if err != nil {
+			glib.IdleAdd(func() {
+				w.showToast("Failed to start Ollama: " + err.Error())
+			})
+			return
+		}
+
+		// Wait a bit for Ollama to start
+		time.Sleep(2 * time.Second)
+
+		// Check health and update UI on main thread
+		glib.IdleAdd(func() {
+			w.checkOllamaHealth()
+			if w.ollamaHealthy {
+				w.showToast("Ollama started successfully!")
+				w.toastOverlay.SetChild(w.splitView)
+			}
+		})
+	}()
 }
