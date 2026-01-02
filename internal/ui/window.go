@@ -2,12 +2,14 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
-	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/config"
 	"github.com/storo/guanaco/internal/ollama"
+	"github.com/storo/guanaco/internal/store"
 )
 
 const (
@@ -27,10 +29,13 @@ type MainWindow struct {
 	splitView    *adw.NavigationSplitView
 	toastOverlay *adw.ToastOverlay
 	statusPage   *adw.StatusPage
+	sidebar      *Sidebar
+	chatView     *ChatView
 
 	// State
 	ollamaClient  *ollama.Client
 	ollamaHealthy bool
+	db            *store.DB
 }
 
 // NewMainWindow creates a new main window.
@@ -43,15 +48,28 @@ func NewMainWindow(app *adw.Application) *MainWindow {
 	win.SetDefaultSize(DefaultWindowWidth, DefaultWindowHeight)
 	win.SetTitle("Guanaco")
 
+	win.initDatabase()
 	win.setupUI()
 	win.checkOllamaHealth()
 
 	return win
 }
 
+func (w *MainWindow) initDatabase() {
+	dbPath := config.GetDatabasePath()
+	db, err := store.NewDB(dbPath)
+	if err != nil {
+		// Log error but continue - app can work without persistence
+		fmt.Printf("Warning: failed to open database: %v\n", err)
+		return
+	}
+	w.db = db
+}
+
 func (w *MainWindow) setupUI() {
 	// Create header bar
 	w.headerBar = NewHeaderBar()
+	w.headerBar.OnNewChat(w.onNewChat)
 
 	// Create split view for sidebar and content
 	w.splitView = adw.NewNavigationSplitView()
@@ -59,28 +77,20 @@ func (w *MainWindow) setupUI() {
 	w.splitView.SetMaxSidebarWidth(300)
 	w.splitView.SetSidebarWidthFraction(0.25)
 
-	// Sidebar placeholder
-	sidebarContent := gtk.NewBox(gtk.OrientationVertical, 0)
-	sidebarLabel := gtk.NewLabel("Chats")
-	sidebarLabel.AddCSSClass("title-2")
-	sidebarLabel.SetMarginTop(12)
-	sidebarLabel.SetMarginBottom(12)
-	sidebarContent.Append(sidebarLabel)
+	// Sidebar with chat list
+	w.sidebar = NewSidebar(w.db)
+	w.sidebar.OnChatSelected(w.onChatSelected)
 
-	sidebarPage := adw.NewNavigationPage(sidebarContent, "Chats")
+	sidebarPage := adw.NewNavigationPage(w.sidebar, "Chats")
 	w.splitView.SetSidebar(sidebarPage)
 
-	// Content placeholder
-	contentBox := gtk.NewBox(gtk.OrientationVertical, 0)
-	contentLabel := gtk.NewLabel("Select a chat or start a new one")
-	contentLabel.AddCSSClass("dim-label")
-	contentBox.SetVExpand(true)
-	contentBox.SetHExpand(true)
-	contentBox.SetVAlign(gtk.AlignCenter)
-	contentBox.SetHAlign(gtk.AlignCenter)
-	contentBox.Append(contentLabel)
+	// Chat view
+	w.chatView = NewChatView(w.ollamaClient, w.db)
+	w.chatView.OnError(func(err error) {
+		w.showToast("Error: " + err.Error())
+	})
 
-	contentPage := adw.NewNavigationPage(contentBox, "Chat")
+	contentPage := adw.NewNavigationPage(w.chatView, "Chat")
 	w.splitView.SetContent(contentPage)
 
 	// Create status page for when Ollama is not running
@@ -111,6 +121,7 @@ func (w *MainWindow) checkOllamaHealth() {
 		w.showOllamaNotRunning()
 	} else {
 		w.loadModels()
+		w.sidebar.LoadChats()
 	}
 }
 
@@ -130,9 +141,23 @@ func (w *MainWindow) loadModels() {
 
 	w.headerBar.SetModels(models)
 
+	// Set current model in chat view
 	if len(models) > 0 {
-		w.showToast("Loaded " + string(rune('0'+len(models))) + " models")
+		w.chatView.SetModel(models[0].Name)
+		w.showToast(fmt.Sprintf("Loaded %d models", len(models)))
 	}
+}
+
+func (w *MainWindow) onNewChat() {
+	w.chatView.NewChat()
+	model := w.headerBar.CurrentModel()
+	if model != "" {
+		w.chatView.SetModel(model)
+	}
+}
+
+func (w *MainWindow) onChatSelected(chat *store.Chat) {
+	w.chatView.SetChat(chat)
 }
 
 func (w *MainWindow) showToast(message string) {
