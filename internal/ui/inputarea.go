@@ -9,10 +9,19 @@ import (
 type InputArea struct {
 	*gtk.Box
 
-	textView    *gtk.TextView
-	sendButton  *gtk.Button
+	// Layout
+	mainBox       *gtk.Box
+	attachmentBox *gtk.Box
+	inputBox      *gtk.Box
+
+	// Input components
+	textView     *gtk.TextView
+	sendButton   *gtk.Button
 	attachButton *gtk.Button
-	scrolled    *gtk.ScrolledWindow
+	scrolled     *gtk.ScrolledWindow
+
+	// State
+	attachments []*AttachmentPill
 
 	// Callbacks
 	onSend   func(text string)
@@ -23,7 +32,7 @@ type InputArea struct {
 func NewInputArea() *InputArea {
 	ia := &InputArea{}
 
-	ia.Box = gtk.NewBox(gtk.OrientationHorizontal, 8)
+	ia.Box = gtk.NewBox(gtk.OrientationVertical, 4)
 	ia.AddCSSClass("input-area")
 	ia.SetMarginTop(8)
 	ia.SetMarginBottom(8)
@@ -36,6 +45,16 @@ func NewInputArea() *InputArea {
 }
 
 func (ia *InputArea) setupUI() {
+	// Attachment pills box (hidden by default)
+	ia.attachmentBox = gtk.NewBox(gtk.OrientationHorizontal, 4)
+	ia.attachmentBox.SetMarginBottom(4)
+	ia.attachmentBox.SetVisible(false)
+	ia.Append(ia.attachmentBox)
+
+	// Input row (horizontal box)
+	ia.inputBox = gtk.NewBox(gtk.OrientationHorizontal, 8)
+	ia.Append(ia.inputBox)
+
 	// Attach button
 	ia.attachButton = gtk.NewButton()
 	ia.attachButton.SetIconName("mail-attachment-symbolic")
@@ -47,7 +66,7 @@ func (ia *InputArea) setupUI() {
 			ia.onAttach()
 		}
 	})
-	ia.Append(ia.attachButton)
+	ia.inputBox.Append(ia.attachButton)
 
 	// Text view in scrolled window
 	ia.textView = gtk.NewTextView()
@@ -77,7 +96,7 @@ func (ia *InputArea) setupUI() {
 	ia.scrolled.SetPropagateNaturalHeight(true)
 	ia.scrolled.SetHExpand(true)
 	ia.scrolled.AddCSSClass("input-scrolled")
-	ia.Append(ia.scrolled)
+	ia.inputBox.Append(ia.scrolled)
 
 	// Send button
 	ia.sendButton = gtk.NewButton()
@@ -87,7 +106,7 @@ func (ia *InputArea) setupUI() {
 	ia.sendButton.AddCSSClass("circular")
 	ia.sendButton.SetVAlign(gtk.AlignEnd)
 	ia.sendButton.ConnectClicked(ia.send)
-	ia.Append(ia.sendButton)
+	ia.inputBox.Append(ia.sendButton)
 }
 
 func (ia *InputArea) send() {
@@ -142,4 +161,50 @@ func (ia *InputArea) GetText() string {
 func (ia *InputArea) SetText(text string) {
 	buffer := ia.textView.Buffer()
 	buffer.SetText(text)
+}
+
+// AddAttachment adds an attachment pill to the input area.
+func (ia *InputArea) AddAttachment(pill *AttachmentPill) {
+	// Set up remove callback
+	pill.OnRemove(func() {
+		ia.RemoveAttachment(pill)
+	})
+
+	ia.attachments = append(ia.attachments, pill)
+	ia.attachmentBox.Append(pill)
+	ia.attachmentBox.SetVisible(true)
+}
+
+// RemoveAttachment removes an attachment pill from the input area.
+func (ia *InputArea) RemoveAttachment(pill *AttachmentPill) {
+	for i, p := range ia.attachments {
+		if p == pill {
+			ia.attachments = append(ia.attachments[:i], ia.attachments[i+1:]...)
+			break
+		}
+	}
+	ia.attachmentBox.Remove(pill)
+
+	if len(ia.attachments) == 0 {
+		ia.attachmentBox.SetVisible(false)
+	}
+}
+
+// GetAttachments returns all current attachments.
+func (ia *InputArea) GetAttachments() []*AttachmentPill {
+	return ia.attachments
+}
+
+// ClearAttachments removes all attachments.
+func (ia *InputArea) ClearAttachments() {
+	for _, pill := range ia.attachments {
+		ia.attachmentBox.Remove(pill)
+	}
+	ia.attachments = nil
+	ia.attachmentBox.SetVisible(false)
+}
+
+// HasAttachments returns true if there are any attachments.
+func (ia *InputArea) HasAttachments() bool {
+	return len(ia.attachments) > 0
 }

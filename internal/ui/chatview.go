@@ -3,12 +3,16 @@ package ui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
+	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/storo/guanaco/internal/ollama"
+	"github.com/storo/guanaco/internal/rag"
 	"github.com/storo/guanaco/internal/store"
 )
 
@@ -27,11 +31,12 @@ type ChatView struct {
 	isStreaming   bool
 
 	// Dependencies
-	ollamaClient *ollama.Client
+	ollamaClient  *ollama.Client
 	streamHandler *ollama.StreamHandler
-	db           *store.DB
-	currentChat  *store.Chat
-	currentModel string
+	db            *store.DB
+	ragProcessor  *rag.Processor
+	currentChat   *store.Chat
+	currentModel  string
 
 	// Callbacks
 	onError func(error)
@@ -43,6 +48,7 @@ func NewChatView(client *ollama.Client, db *store.DB) *ChatView {
 		ollamaClient:  client,
 		streamHandler: ollama.NewStreamHandler(client),
 		db:            db,
+		ragProcessor:  rag.NewProcessor(),
 	}
 
 	cv.Box = gtk.NewBox(gtk.OrientationVertical, 0)
@@ -50,6 +56,7 @@ func NewChatView(client *ollama.Client, db *store.DB) *ChatView {
 	cv.SetHExpand(true)
 
 	cv.setupUI()
+	cv.setupDropTarget()
 
 	return cv
 }
@@ -75,7 +82,114 @@ func (cv *ChatView) setupUI() {
 	// Input area
 	cv.inputArea = NewInputArea()
 	cv.inputArea.OnSend(cv.onSendMessage)
+	cv.inputArea.OnAttach(cv.onAttachFile)
 	cv.Append(cv.inputArea)
+}
+
+func (cv *ChatView) setupDropTarget() {
+	// Create drop target for files
+	dropTarget := gtk.NewDropTarget(gio.GTypeFile, gdk.ActionCopy)
+
+	dropTarget.ConnectDrop(func(value *glib.Value, x, y float64) bool {
+		file := value.Object()
+		if file == nil {
+			return false
+		}
+
+		gfile, ok := file.Cast().(*gio.File)
+		if !ok {
+			return false
+		}
+
+		path := gfile.Path()
+		if path == "" {
+			return false
+		}
+
+		cv.processAndAttachFile(path)
+		return true
+	})
+
+	cv.AddController(dropTarget)
+}
+
+func (cv *ChatView) onAttachFile() {
+	// Get parent window
+	var parentWindow *gtk.Window
+	if root := cv.Root(); root != nil {
+		if nw, ok := root.CastType(gtk.GTypeWindow).(*gtk.Window); ok {
+			parentWindow = nw
+		}
+	}
+
+	// Create file chooser dialog
+	dialog := gtk.NewFileChooserNative(
+		"Select Document",
+		parentWindow,
+		gtk.FileChooserActionOpen,
+		"Open",
+		"Cancel",
+	)
+
+	// Add file filters
+	allFilter := gtk.NewFileFilter()
+	allFilter.SetName("Supported Documents")
+	allFilter.AddPattern("*.txt")
+	allFilter.AddPattern("*.md")
+	allFilter.AddPattern("*.pdf")
+	dialog.AddFilter(allFilter)
+
+	textFilter := gtk.NewFileFilter()
+	textFilter.SetName("Text Files")
+	textFilter.AddPattern("*.txt")
+	textFilter.AddPattern("*.md")
+	dialog.AddFilter(textFilter)
+
+	pdfFilter := gtk.NewFileFilter()
+	pdfFilter.SetName("PDF Documents")
+	pdfFilter.AddPattern("*.pdf")
+	dialog.AddFilter(pdfFilter)
+
+	dialog.ConnectResponse(func(response int) {
+		if response == int(gtk.ResponseAccept) {
+			file := dialog.File()
+			if file != nil {
+				path := file.Path()
+				if path != "" {
+					cv.processAndAttachFile(path)
+				}
+			}
+		}
+		dialog.Destroy()
+	})
+
+	dialog.Show()
+}
+
+func (cv *ChatView) processAndAttachFile(path string) {
+	filename := filepath.Base(path)
+
+	// Check if file type is supported
+	if !cv.ragProcessor.CanProcess(filename) {
+		cv.handleError(fmt.Errorf("unsupported file type: %s", filename))
+		return
+	}
+
+	// Process in background
+	go func() {
+		result, err := cv.ragProcessor.Process(path)
+
+		glib.IdleAdd(func() {
+			if err != nil {
+				cv.handleError(fmt.Errorf("failed to process %s: %w", filename, err))
+				return
+			}
+
+			// Create and add attachment pill
+			pill := NewAttachmentPill(result.Filename, result.Content)
+			cv.inputArea.AddAttachment(pill)
+		})
+	}()
 }
 
 func (cv *ChatView) onSendMessage(text string) {
@@ -84,7 +198,7 @@ func (cv *ChatView) onSendMessage(text string) {
 	}
 
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && !cv.inputArea.HasAttachments() {
 		return
 	}
 
@@ -94,21 +208,63 @@ func (cv *ChatView) onSendMessage(text string) {
 		return
 	}
 
+	// Build full prompt with attachments
+	fullPrompt := cv.buildPromptWithAttachments(text)
+
 	// Create chat if needed
 	if cv.currentChat == nil {
 		cv.createNewChat()
 	}
 
-	// Add user message
-	cv.addMessage(store.RoleUser, text)
+	// Add user message (show original text in bubble, but send full prompt)
+	displayText := text
+	if cv.inputArea.HasAttachments() {
+		attachmentNames := make([]string, 0)
+		for _, pill := range cv.inputArea.GetAttachments() {
+			attachmentNames = append(attachmentNames, pill.Filename())
+		}
+		if text != "" {
+			displayText = fmt.Sprintf("[📎 %s]\n\n%s", strings.Join(attachmentNames, ", "), text)
+		} else {
+			displayText = fmt.Sprintf("[📎 %s]", strings.Join(attachmentNames, ", "))
+		}
+	}
+	cv.addMessage(store.RoleUser, displayText)
+
+	// Clear attachments after using them
+	cv.inputArea.ClearAttachments()
 
 	// Save to database
 	if cv.db != nil && cv.currentChat != nil {
-		cv.db.AddMessage(cv.currentChat.ID, store.RoleUser, text)
+		cv.db.AddMessage(cv.currentChat.ID, store.RoleUser, displayText)
 	}
 
 	// Check if model exists, pull if needed, then stream
-	cv.ensureModelAndStream(text)
+	cv.ensureModelAndStream(fullPrompt)
+}
+
+func (cv *ChatView) buildPromptWithAttachments(userText string) string {
+	attachments := cv.inputArea.GetAttachments()
+	if len(attachments) == 0 {
+		return userText
+	}
+
+	var builder strings.Builder
+
+	// Add document context
+	for _, pill := range attachments {
+		builder.WriteString(fmt.Sprintf("[Document: %s]\n", pill.Filename()))
+		builder.WriteString(pill.Content())
+		builder.WriteString("\n\n")
+	}
+
+	// Add user's question/message
+	if userText != "" {
+		builder.WriteString("User question: ")
+		builder.WriteString(userText)
+	}
+
+	return builder.String()
 }
 
 func (cv *ChatView) ensureModelAndStream(userMessage string) {
