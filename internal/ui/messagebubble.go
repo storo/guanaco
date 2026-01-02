@@ -7,6 +7,9 @@ import (
 	"github.com/storo/guanaco/internal/store"
 )
 
+// Shared markdown renderer for all message bubbles
+var mdRenderer = NewMarkdownRenderer()
+
 // MessageBubble is a widget that displays a single chat message.
 type MessageBubble struct {
 	*gtk.Box
@@ -35,8 +38,8 @@ func NewMessageBubble(role store.Role, content string) *MessageBubble {
 }
 
 func (mb *MessageBubble) setupUI() {
-	// Create label for content
-	mb.label = gtk.NewLabel(mb.content)
+	// Create label for content with markdown rendering
+	mb.label = gtk.NewLabel("")
 	mb.label.SetWrap(true)
 	mb.label.SetWrapMode(pango.WrapWordChar)
 	mb.label.SetXAlign(0)
@@ -45,6 +48,12 @@ func (mb *MessageBubble) setupUI() {
 	mb.label.SetMarginBottom(8)
 	mb.label.SetMarginStart(12)
 	mb.label.SetMarginEnd(12)
+	mb.label.SetUseMarkup(true)
+
+	// Render initial content
+	if mb.content != "" {
+		mb.label.SetMarkup(mdRenderer.ToPango(mb.content))
+	}
 
 	// Style based on role
 	mb.AddCSSClass("message-bubble")
@@ -74,13 +83,13 @@ func (mb *MessageBubble) setupUI() {
 // SetContent updates the message content.
 func (mb *MessageBubble) SetContent(content string) {
 	mb.content = content
-	mb.label.SetLabel(content)
+	mb.label.SetMarkup(mdRenderer.ToPango(content))
 }
 
 // AppendContent appends text to the current content.
 func (mb *MessageBubble) AppendContent(text string) {
 	mb.content += text
-	mb.label.SetLabel(mb.content)
+	mb.label.SetMarkup(mdRenderer.ToPango(mb.content))
 }
 
 // GetContent returns the current content.
