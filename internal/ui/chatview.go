@@ -60,6 +60,7 @@ type ChatView struct {
 	currentBubble *MessageBubble
 	isStreaming   bool
 	streamCancel  context.CancelFunc
+	userAtBottom  bool // Track if user is at bottom for auto-scroll
 
 	// Dependencies
 	ollamaClient  *ollama.Client
@@ -82,6 +83,7 @@ func NewChatView(client *ollama.Client, db *store.DB) *ChatView {
 		streamHandler: ollama.NewStreamHandler(client),
 		db:            db,
 		ragProcessor:  rag.NewProcessor(),
+		userAtBottom:  true, // Start at bottom
 	}
 
 	cv.Box = gtk.NewBox(gtk.OrientationVertical, 0)
@@ -90,6 +92,7 @@ func NewChatView(client *ollama.Client, db *store.DB) *ChatView {
 
 	cv.setupUI()
 	cv.setupDropTarget()
+	cv.setupScrollTracking()
 
 	return cv
 }
@@ -114,6 +117,7 @@ func (cv *ChatView) setupUI() {
 	logoImage := gtk.NewImageFromFile(logoPath)
 	logoImage.SetPixelSize(160)
 	logoImage.SetHAlign(gtk.AlignCenter)
+	logoImage.AddCSSClass("welcome-logo")
 	cv.welcomeView.Append(logoImage)
 
 	// Dynamic greeting based on time of day
@@ -704,8 +708,21 @@ func extractUserText(displayText string) string {
 }
 
 func (cv *ChatView) scrollToBottom() {
+	// Don't auto-scroll if user scrolled up during streaming
+	if cv.isStreaming && !cv.userAtBottom {
+		return
+	}
 	adj := cv.scrolled.VAdjustment()
 	adj.SetValue(adj.Upper() - adj.PageSize())
+}
+
+// setupScrollTracking tracks user scroll position for auto-scroll lock.
+func (cv *ChatView) setupScrollTracking() {
+	adj := cv.scrolled.VAdjustment()
+	adj.ConnectValueChanged(func() {
+		// User is at bottom if within 50px of the end
+		cv.userAtBottom = adj.Value() >= adj.Upper()-adj.PageSize()-50
+	})
 }
 
 func (cv *ChatView) handleError(err error) {

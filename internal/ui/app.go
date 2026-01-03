@@ -93,6 +93,11 @@ const styleCSS = `
 }
 
 /* Welcome Screen */
+.welcome-logo {
+  margin-bottom: 16px;
+  opacity: 0.9;
+}
+
 .suggestion-pill {
   background-color: alpha(@card_bg_color, 0.5);
   border-radius: 20px;

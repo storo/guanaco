@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
@@ -106,10 +108,15 @@ func (ia *InputArea) setupUI() {
 	ia.scrolled.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	ia.scrolled.SetMinContentHeight(40)
 	ia.scrolled.SetMaxContentHeight(150)
-	ia.scrolled.SetPropagateNaturalHeight(true)
 	ia.scrolled.SetHExpand(true)
 	ia.scrolled.AddCSSClass("input-scrolled")
 	ia.inputBox.Append(ia.scrolled)
+
+	// Auto-resize based on content
+	buffer := ia.textView.Buffer()
+	buffer.ConnectChanged(func() {
+		ia.updateHeight()
+	})
 
 	// Model selector dropdown
 	ia.modelLabel = gtk.NewLabel("model")
@@ -342,4 +349,29 @@ func (ia *InputArea) CurrentModel() string {
 // OnModelChanged sets the callback for when the model changes.
 func (ia *InputArea) OnModelChanged(callback func(string)) {
 	ia.onModelChanged = callback
+}
+
+// updateHeight adjusts the input area height based on content.
+func (ia *InputArea) updateHeight() {
+	buffer := ia.textView.Buffer()
+	text := buffer.Text(buffer.StartIter(), buffer.EndIter(), false)
+
+	// Count lines (including line breaks)
+	lines := strings.Count(text, "\n") + 1
+
+	// Clamp between 1 and 6 lines
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 6 {
+		lines = 6
+	}
+
+	// ~24px per line, min 40px
+	height := lines * 24
+	if height < 40 {
+		height = 40
+	}
+
+	ia.scrolled.SetMinContentHeight(height)
 }
