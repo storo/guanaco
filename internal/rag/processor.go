@@ -38,6 +38,7 @@ func NewProcessor() *Processor {
 		readers: []Reader{
 			NewTxtReader(),
 			NewPdfReader(),
+			NewImageReader(),
 		},
 		chunker: NewChunker(DefaultChunkSize, DefaultOverlap),
 	}
@@ -111,5 +112,5 @@ func (p *Processor) ProcessForContext(path string) (string, error) {
 
 // SupportedExtensions returns a list of supported file extensions.
 func (p *Processor) SupportedExtensions() []string {
-	return []string{".txt", ".text", ".md", ".markdown", ".pdf"}
+	return []string{".txt", ".text", ".md", ".markdown", ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
 }

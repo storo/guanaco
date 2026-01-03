@@ -13,6 +13,13 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
+// ContentPart represents a parsed content part (text or code).
+type ContentPart struct {
+	Type     string // "text" or "code"
+	Content  string
+	Language string // Only for code blocks
+}
+
 // MarkdownRenderer converts Markdown to Pango markup for GTK labels.
 type MarkdownRenderer struct {
 	md goldmark.Markdown
@@ -32,6 +39,9 @@ func NewMarkdownRenderer() *MarkdownRenderer {
 
 // ToPango converts markdown text to Pango markup.
 func (r *MarkdownRenderer) ToPango(markdown string) string {
+	// First decode any HTML entities in the input
+	markdown = html.UnescapeString(markdown)
+
 	source := []byte(markdown)
 	reader := text.NewReader(source)
 	doc := r.md.Parser().Parse(reader)
@@ -150,10 +160,11 @@ func (r *MarkdownRenderer) renderNode(buf *bytes.Buffer, node ast.Node, source [
 		for i, child := 0, n.FirstChild(); child != nil; i, child = i+1, child.NextSibling() {
 			if listItem, ok := child.(*ast.ListItem); ok {
 				if n.IsOrdered() {
+					buf.WriteString("  ")
 					buf.WriteString(string(rune('1' + i)))
 					buf.WriteString(". ")
 				} else {
-					buf.WriteString("• ")
+					buf.WriteString("  • ")
 				}
 				r.renderListItemContent(buf, listItem, source, depth)
 				if child.NextSibling() != nil {
@@ -215,4 +226,109 @@ func (r *MarkdownRenderer) renderBlockquoteContent(buf *bytes.Buffer, quote *ast
 			r.renderNode(buf, child, source, depth)
 		}
 	}
+}
+
+// Parse splits markdown into content parts (text and code blocks).
+func (r *MarkdownRenderer) Parse(markdown string) []ContentPart {
+	// First decode any HTML entities in the input
+	markdown = html.UnescapeString(markdown)
+
+	source := []byte(markdown)
+	reader := text.NewReader(source)
+	doc := r.md.Parser().Parse(reader)
+
+	var parts []ContentPart
+	var textBuf bytes.Buffer
+
+	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
+		switch n := child.(type) {
+		case *ast.FencedCodeBlock:
+			// Flush any accumulated text
+			if textBuf.Len() > 0 {
+				text := strings.TrimSpace(textBuf.String())
+				if text != "" {
+					parts = append(parts, ContentPart{
+						Type:    "text",
+						Content: text,
+					})
+				}
+				textBuf.Reset()
+			}
+
+			// Extract code block
+			var codeBuf bytes.Buffer
+			lines := n.Lines()
+			for i := 0; i < lines.Len(); i++ {
+				line := lines.At(i)
+				content := string(line.Value(source))
+				if i == lines.Len()-1 {
+					content = strings.TrimRight(content, "\n")
+				}
+				codeBuf.WriteString(content)
+			}
+
+			lang := ""
+			if n.Info != nil {
+				lang = string(n.Info.Segment.Value(source))
+				// Remove any extra info after language
+				if idx := strings.IndexByte(lang, ' '); idx > 0 {
+					lang = lang[:idx]
+				}
+			}
+
+			parts = append(parts, ContentPart{
+				Type:     "code",
+				Content:  codeBuf.String(),
+				Language: lang,
+			})
+
+		case *ast.CodeBlock:
+			// Flush any accumulated text
+			if textBuf.Len() > 0 {
+				text := strings.TrimSpace(textBuf.String())
+				if text != "" {
+					parts = append(parts, ContentPart{
+						Type:    "text",
+						Content: text,
+					})
+				}
+				textBuf.Reset()
+			}
+
+			// Extract code block
+			var codeBuf bytes.Buffer
+			lines := n.Lines()
+			for i := 0; i < lines.Len(); i++ {
+				line := lines.At(i)
+				content := string(line.Value(source))
+				if i == lines.Len()-1 {
+					content = strings.TrimRight(content, "\n")
+				}
+				codeBuf.WriteString(content)
+			}
+
+			parts = append(parts, ContentPart{
+				Type:    "code",
+				Content: codeBuf.String(),
+			})
+
+		default:
+			// Render other nodes to text buffer
+			r.renderNode(&textBuf, child, source, 0)
+		}
+	}
+
+	// Flush remaining text
+	if textBuf.Len() > 0 {
+		text := strings.TrimSpace(textBuf.String())
+		text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+		if text != "" {
+			parts = append(parts, ContentPart{
+				Type:    "text",
+				Content: text,
+			})
+		}
+	}
+
+	return parts
 }

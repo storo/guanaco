@@ -1,21 +1,19 @@
 /* Guanaco Application Styles */
 
-/* Message bubbles */
+/* Message bubbles - minimal design */
 .message-bubble {
-  margin: 4px 12px;
+  margin: 4px 0;
 }
 
+/* User messages: compact pill aligned right */
 .message-user .card {
-  background-color: @accent_bg_color;
-  color: @accent_fg_color;
+  background-color: alpha(@card_fg_color, 0.12);
+  border-radius: 18px;
 }
 
-.message-assistant .card {
-  background-color: @card_bg_color;
-}
-
+/* System messages: subtle centered */
 .message-system .card {
-  background-color: alpha(@accent_bg_color, 0.2);
+  background-color: alpha(@accent_bg_color, 0.1);
   font-style: italic;
 }
 

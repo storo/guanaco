@@ -10,11 +10,12 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS chats (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    title       TEXT NOT NULL DEFAULT 'New Chat',
-    model       TEXT NOT NULL,
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    title         TEXT NOT NULL DEFAULT 'New Chat',
+    model         TEXT NOT NULL,
+    system_prompt TEXT NOT NULL DEFAULT '',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -38,18 +39,25 @@ CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message_id ON attachments(message_id);
 `
 
+// migration adds new columns to existing databases
+const migration = `
+-- Add system_prompt column if it doesn't exist
+ALTER TABLE chats ADD COLUMN system_prompt TEXT NOT NULL DEFAULT '';
+`
+
 // DB wraps the SQLite database connection.
 type DB struct {
 	db *sql.DB
 
 	// Prepared statements for performance
-	stmtCreateChat      *sql.Stmt
-	stmtGetChat         *sql.Stmt
-	stmtListChats       *sql.Stmt
-	stmtUpdateChatTitle *sql.Stmt
-	stmtDeleteChat      *sql.Stmt
-	stmtAddMessage      *sql.Stmt
-	stmtGetMessages     *sql.Stmt
+	stmtCreateChat            *sql.Stmt
+	stmtGetChat               *sql.Stmt
+	stmtListChats             *sql.Stmt
+	stmtUpdateChatTitle       *sql.Stmt
+	stmtUpdateChatSystemPrompt *sql.Stmt
+	stmtDeleteChat            *sql.Stmt
+	stmtAddMessage            *sql.Stmt
+	stmtGetMessages           *sql.Stmt
 }
 
 // NewDB creates a new database connection and initializes the schema.
@@ -74,6 +82,9 @@ func NewDB(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Run migrations (ignore errors for columns that already exist)
+	sqlDB.Exec(migration)
+
 	db := &DB{db: sqlDB}
 
 	// Prepare statements
@@ -89,15 +100,15 @@ func (d *DB) prepareStatements() error {
 	var err error
 
 	d.stmtCreateChat, err = d.db.Prepare(`
-		INSERT INTO chats (title, model, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO chats (title, model, system_prompt, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare CreateChat: %w", err)
 	}
 
 	d.stmtGetChat, err = d.db.Prepare(`
-		SELECT id, title, model, created_at, updated_at
+		SELECT id, title, model, system_prompt, created_at, updated_at
 		FROM chats WHERE id = ?
 	`)
 	if err != nil {
@@ -105,7 +116,7 @@ func (d *DB) prepareStatements() error {
 	}
 
 	d.stmtListChats, err = d.db.Prepare(`
-		SELECT id, title, model, created_at, updated_at
+		SELECT id, title, model, system_prompt, created_at, updated_at
 		FROM chats ORDER BY updated_at DESC
 	`)
 	if err != nil {
@@ -117,6 +128,13 @@ func (d *DB) prepareStatements() error {
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare UpdateChatTitle: %w", err)
+	}
+
+	d.stmtUpdateChatSystemPrompt, err = d.db.Prepare(`
+		UPDATE chats SET system_prompt = ?, updated_at = ? WHERE id = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare UpdateChatSystemPrompt: %w", err)
 	}
 
 	d.stmtDeleteChat, err = d.db.Prepare(`DELETE FROM chats WHERE id = ?`)
@@ -158,6 +176,9 @@ func (d *DB) Close() error {
 	if d.stmtUpdateChatTitle != nil {
 		d.stmtUpdateChatTitle.Close()
 	}
+	if d.stmtUpdateChatSystemPrompt != nil {
+		d.stmtUpdateChatSystemPrompt.Close()
+	}
 	if d.stmtDeleteChat != nil {
 		d.stmtDeleteChat.Close()
 	}
@@ -178,7 +199,7 @@ func (d *DB) CreateChat(model string) (*Chat, error) {
 	chat.CreatedAt = now
 	chat.UpdatedAt = now
 
-	result, err := d.stmtCreateChat.Exec(chat.Title, chat.Model, chat.CreatedAt, chat.UpdatedAt)
+	result, err := d.stmtCreateChat.Exec(chat.Title, chat.Model, chat.SystemPrompt, chat.CreatedAt, chat.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat: %w", err)
 	}
@@ -199,6 +220,7 @@ func (d *DB) GetChat(id int64) (*Chat, error) {
 		&chat.ID,
 		&chat.Title,
 		&chat.Model,
+		&chat.SystemPrompt,
 		&chat.CreatedAt,
 		&chat.UpdatedAt,
 	)
@@ -223,6 +245,7 @@ func (d *DB) ListChats() ([]*Chat, error) {
 			&chat.ID,
 			&chat.Title,
 			&chat.Model,
+			&chat.SystemPrompt,
 			&chat.CreatedAt,
 			&chat.UpdatedAt,
 		)
@@ -240,6 +263,15 @@ func (d *DB) UpdateChatTitle(id int64, title string) error {
 	_, err := d.stmtUpdateChatTitle.Exec(title, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update chat title: %w", err)
+	}
+	return nil
+}
+
+// UpdateChatSystemPrompt updates the system prompt of a chat.
+func (d *DB) UpdateChatSystemPrompt(id int64, systemPrompt string) error {
+	_, err := d.stmtUpdateChatSystemPrompt.Exec(systemPrompt, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update chat system prompt: %w", err)
 	}
 	return nil
 }
@@ -302,4 +334,38 @@ func (d *DB) GetMessages(chatID int64) ([]*Message, error) {
 	}
 
 	return messages, rows.Err()
+}
+
+// AddAttachment saves an attachment for a message.
+func (d *DB) AddAttachment(messageID int64, filename, content string) error {
+	_, err := d.db.Exec(
+		"INSERT INTO attachments (message_id, filename, content) VALUES (?, ?, ?)",
+		messageID, filename, content,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to add attachment: %w", err)
+	}
+	return nil
+}
+
+// GetMessageAttachments returns attachments for a message.
+func (d *DB) GetMessageAttachments(messageID int64) ([]Attachment, error) {
+	rows, err := d.db.Query(
+		"SELECT id, message_id, filename, content FROM attachments WHERE message_id = ?",
+		messageID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []Attachment
+	for rows.Next() {
+		var a Attachment
+		if err := rows.Scan(&a.ID, &a.MessageID, &a.Filename, &a.Content); err != nil {
+			return nil, fmt.Errorf("failed to scan attachment: %w", err)
+		}
+		attachments = append(attachments, a)
+	}
+	return attachments, rows.Err()
 }

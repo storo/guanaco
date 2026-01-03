@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
@@ -12,12 +13,13 @@ type AttachmentPill struct {
 	*gtk.Box
 
 	// UI components
-	label       *gtk.Label
-	removeBtn   *gtk.Button
+	label     *gtk.Label
+	removeBtn *gtk.Button
 
 	// Data
 	filename string
 	content  string
+	isImage  bool
 
 	// Callbacks
 	onRemove func()
@@ -28,6 +30,7 @@ func NewAttachmentPill(filename, content string) *AttachmentPill {
 	pill := &AttachmentPill{
 		filename: filename,
 		content:  content,
+		isImage:  isImageFile(filename),
 	}
 
 	pill.Box = gtk.NewBox(gtk.OrientationHorizontal, 4)
@@ -39,9 +42,25 @@ func NewAttachmentPill(filename, content string) *AttachmentPill {
 	return pill
 }
 
+// isImageFile checks if a filename is an image.
+func isImageFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+		return true
+	}
+	return false
+}
+
 func (p *AttachmentPill) setupUI() {
-	// Document icon
-	icon := gtk.NewImageFromIconName("text-x-generic-symbolic")
+	// Icon based on file type
+	var iconName string
+	if p.isImage {
+		iconName = "image-x-generic-symbolic"
+	} else {
+		iconName = "text-x-generic-symbolic"
+	}
+	icon := gtk.NewImageFromIconName(iconName)
 	icon.SetMarginStart(8)
 	p.Append(icon)
 
@@ -89,4 +108,9 @@ func (p *AttachmentPill) Content() string {
 // OnRemove sets the callback for when the remove button is clicked.
 func (p *AttachmentPill) OnRemove(callback func()) {
 	p.onRemove = callback
+}
+
+// IsImage returns true if this attachment is an image.
+func (p *AttachmentPill) IsImage() bool {
+	return p.isImage
 }

@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/store"
 )
 
@@ -10,15 +13,18 @@ import (
 type Sidebar struct {
 	*gtk.Box
 
-	listBox  *gtk.ListBox
-	scrolled *gtk.ScrolledWindow
-	chats    []*store.Chat
+	listBox       *gtk.ListBox
+	scrolled      *gtk.ScrolledWindow
+	newChatButton *gtk.Button
+	chats         []*store.Chat
 
 	// Dependencies
 	db *store.DB
 
 	// Callbacks
 	onChatSelected func(*store.Chat)
+	onChatDeleted  func(int64)
+	onSettings     func()
 }
 
 // NewSidebar creates a new sidebar.
@@ -49,6 +55,13 @@ func (sb *Sidebar) setupUI() {
 	title.SetXAlign(0)
 	header.Append(title)
 
+	// New Chat button
+	sb.newChatButton = gtk.NewButton()
+	sb.newChatButton.SetIconName("list-add-symbolic")
+	sb.newChatButton.SetTooltipText("New Chat")
+	sb.newChatButton.AddCSSClass("flat")
+	header.Append(sb.newChatButton)
+
 	sb.Append(header)
 
 	// Separator
@@ -77,6 +90,44 @@ func (sb *Sidebar) setupUI() {
 	sb.scrolled.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	sb.scrolled.SetVExpand(true)
 	sb.Append(sb.scrolled)
+
+	// === FOOTER ===
+	footerSeparator := gtk.NewSeparator(gtk.OrientationHorizontal)
+	sb.Append(footerSeparator)
+
+	footer := gtk.NewBox(gtk.OrientationVertical, 4)
+	footer.SetMarginTop(8)
+	footer.SetMarginBottom(8)
+	footer.SetMarginStart(8)
+	footer.SetMarginEnd(8)
+
+	// Settings button
+	settingsBtn := gtk.NewButton()
+	settingsBtn.SetChild(sb.createFooterButtonContent("preferences-system-symbolic", "Settings"))
+	settingsBtn.AddCSSClass("flat")
+	settingsBtn.ConnectClicked(func() {
+		if sb.onSettings != nil {
+			sb.onSettings()
+		}
+	})
+	footer.Append(settingsBtn)
+
+	sb.Append(footer)
+}
+
+// createFooterButtonContent creates a horizontal box with icon and label for footer buttons.
+func (sb *Sidebar) createFooterButtonContent(iconName, label string) *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationHorizontal, 8)
+
+	icon := gtk.NewImageFromIconName(iconName)
+	box.Append(icon)
+
+	labelWidget := gtk.NewLabel(label)
+	labelWidget.SetHExpand(true)
+	labelWidget.SetXAlign(0)
+	box.Append(labelWidget)
+
+	return box
 }
 
 // LoadChats loads and displays chats from the database.
@@ -115,28 +166,76 @@ func (sb *Sidebar) setChats(chats []*store.Chat) {
 func (sb *Sidebar) createChatRow(chat *store.Chat) *gtk.ListBoxRow {
 	row := gtk.NewListBoxRow()
 
-	box := gtk.NewBox(gtk.OrientationVertical, 4)
+	box := gtk.NewBox(gtk.OrientationVertical, 2)
 	box.SetMarginTop(8)
 	box.SetMarginBottom(8)
 	box.SetMarginStart(12)
-	box.SetMarginEnd(12)
+	box.SetMarginEnd(8)
+
+	// Header with title and delete button
+	headerBox := gtk.NewBox(gtk.OrientationHorizontal, 4)
 
 	// Title
 	titleLabel := gtk.NewLabel(chat.Title)
 	titleLabel.SetXAlign(0)
+	titleLabel.SetHExpand(true)
 	titleLabel.SetEllipsize(3) // PANGO_ELLIPSIZE_END
 	titleLabel.AddCSSClass("heading")
-	box.Append(titleLabel)
+	headerBox.Append(titleLabel)
 
-	// Model subtitle
+	// Delete button
+	deleteBtn := gtk.NewButton()
+	deleteBtn.SetIconName("user-trash-symbolic")
+	deleteBtn.AddCSSClass("flat")
+	deleteBtn.AddCSSClass("circular")
+	deleteBtn.SetTooltipText("Delete chat")
+	deleteBtn.SetVAlign(gtk.AlignCenter)
+
+	chatID := chat.ID // capture for closure
+	deleteBtn.ConnectClicked(func() {
+		sb.deleteChat(chatID)
+	})
+	headerBox.Append(deleteBtn)
+
+	box.Append(headerBox)
+
+	// Preview of last message
+	if sb.db != nil {
+		if messages, err := sb.db.GetMessages(chat.ID); err == nil && len(messages) > 0 {
+			lastMsg := messages[len(messages)-1]
+			preview := truncatePreview(lastMsg.Content, 40)
+
+			previewLabel := gtk.NewLabel(preview)
+			previewLabel.SetXAlign(0)
+			previewLabel.SetEllipsize(3) // PANGO_ELLIPSIZE_END
+			previewLabel.AddCSSClass("dim-label")
+			previewLabel.AddCSSClass("caption")
+			box.Append(previewLabel)
+		}
+	}
+
+	// Model subtitle (smaller, dimmer)
 	modelLabel := gtk.NewLabel(chat.Model)
 	modelLabel.SetXAlign(0)
 	modelLabel.AddCSSClass("dim-label")
 	modelLabel.AddCSSClass("caption")
+	modelLabel.SetOpacity(0.6)
 	box.Append(modelLabel)
 
 	row.SetChild(box)
 	return row
+}
+
+// truncatePreview truncates text for preview display.
+func truncatePreview(s string, maxLen int) string {
+	// Remove newlines for preview
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.TrimSpace(s)
+
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…"
 }
 
 // AddChat adds a new chat to the list.
@@ -167,4 +266,41 @@ func (sb *Sidebar) OnChatSelected(callback func(*store.Chat)) {
 // Refresh reloads the chat list.
 func (sb *Sidebar) Refresh() {
 	sb.LoadChats()
+}
+
+// OnNewChat sets the callback for when the new chat button is clicked.
+func (sb *Sidebar) OnNewChat(callback func()) {
+	sb.newChatButton.ConnectClicked(callback)
+}
+
+// OnChatDeleted sets the callback for when a chat is deleted.
+func (sb *Sidebar) OnChatDeleted(callback func(int64)) {
+	sb.onChatDeleted = callback
+}
+
+// deleteChat deletes a chat from the database and refreshes the list.
+func (sb *Sidebar) deleteChat(chatID int64) {
+	if sb.db == nil {
+		return
+	}
+
+	if err := sb.db.DeleteChat(chatID); err != nil {
+		logger.Error("Failed to delete chat", "chatID", chatID, "error", err)
+		return
+	}
+
+	logger.Info("Chat deleted", "chatID", chatID)
+
+	// Notify listener
+	if sb.onChatDeleted != nil {
+		sb.onChatDeleted(chatID)
+	}
+
+	// Refresh the list
+	sb.Refresh()
+}
+
+// OnSettings sets the callback for when the settings button is clicked.
+func (sb *Sidebar) OnSettings(callback func()) {
+	sb.onSettings = callback
 }

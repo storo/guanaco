@@ -3,33 +3,63 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/config"
 	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 	"github.com/storo/guanaco/internal/rag"
 	"github.com/storo/guanaco/internal/store"
 )
 
+// getGreeting returns a greeting based on the current time of day.
+func getGreeting() string {
+	hour := time.Now().Hour()
+	switch {
+	case hour >= 6 && hour < 12:
+		return "Buenos días"
+	case hour >= 12 && hour < 19:
+		return "Buenas tardes"
+	default:
+		return "Buenas noches"
+	}
+}
+
+// getUsername returns the current user's first name or username.
+func getUsername() string {
+	if u, err := user.Current(); err == nil {
+		if u.Name != "" {
+			return strings.Split(u.Name, " ")[0] // First name only
+		}
+		return u.Username
+	}
+	return ""
+}
+
 // ChatView displays the chat messages and handles interaction.
 type ChatView struct {
 	*gtk.Box
 
 	// UI components
-	scrolled     *gtk.ScrolledWindow
-	messagesBox  *gtk.Box
-	inputArea    *InputArea
+	scrolled    *gtk.ScrolledWindow
+	messagesBox *gtk.Box
+	welcomeView *gtk.Box
+	loadingView *gtk.Box
+	inputArea   *InputArea
 
 	// State
 	messages      []*MessageBubble
 	currentBubble *MessageBubble
 	isStreaming   bool
+	streamCancel  context.CancelFunc
 
 	// Dependencies
 	ollamaClient  *ollama.Client
@@ -38,9 +68,11 @@ type ChatView struct {
 	ragProcessor  *rag.Processor
 	currentChat   *store.Chat
 	currentModel  string
+	appConfig     *config.AppConfig
 
 	// Callbacks
-	onError func(error)
+	onError        func(error)
+	onTitleChanged func(string)
 }
 
 // NewChatView creates a new chat view.
@@ -67,11 +99,84 @@ func (cv *ChatView) setupUI() {
 	cv.messagesBox = gtk.NewBox(gtk.OrientationVertical, 0)
 	cv.messagesBox.SetVExpand(true)
 	cv.messagesBox.SetMarginTop(8)
-	cv.messagesBox.SetMarginBottom(8)
+	cv.messagesBox.SetMarginBottom(16) // Extra space at bottom for comfortable reading
 
-	// Scrolled window for messages
+	// Welcome view for empty chats (professional layout)
+	cv.welcomeView = gtk.NewBox(gtk.OrientationVertical, 8)
+	cv.welcomeView.SetVExpand(true)
+	cv.welcomeView.SetVAlign(gtk.AlignCenter)
+	cv.welcomeView.SetHAlign(gtk.AlignCenter)
+	cv.welcomeView.SetMarginStart(32)
+	cv.welcomeView.SetMarginEnd(32)
+
+	// Logo with fixed pixel size using GtkImage
+	logoPath := "/home/storo/projects/guanaco/assets/icons/guanaco-logo.svg"
+	logoImage := gtk.NewImageFromFile(logoPath)
+	logoImage.SetPixelSize(160)
+	logoImage.SetHAlign(gtk.AlignCenter)
+	cv.welcomeView.Append(logoImage)
+
+	// Dynamic greeting based on time of day
+	greeting := getGreeting()
+	username := getUsername()
+	greetingText := greeting
+	if username != "" {
+		greetingText = fmt.Sprintf("%s, %s", greeting, username)
+	}
+	greetingLabel := gtk.NewLabel(greetingText)
+	greetingLabel.AddCSSClass("title-1")
+	greetingLabel.SetHAlign(gtk.AlignCenter)
+	greetingLabel.SetMarginTop(8)
+	cv.welcomeView.Append(greetingLabel)
+
+	// Horizontal pills for suggestions
+	pillsBox := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	pillsBox.SetHAlign(gtk.AlignCenter)
+	pillsBox.SetMarginTop(24)
+
+	// Helper function to create simple pills (icon + title)
+	createPill := func(icon, title string) *gtk.Button {
+		btn := gtk.NewButton()
+		btn.AddCSSClass("flat")
+		btn.AddCSSClass("suggestion-pill")
+
+		box := gtk.NewBox(gtk.OrientationHorizontal, 6)
+
+		iconLabel := gtk.NewLabel(icon)
+		box.Append(iconLabel)
+
+		titleLabel := gtk.NewLabel(title)
+		box.Append(titleLabel)
+
+		btn.SetChild(box)
+		return btn
+	}
+
+	pillsBox.Append(createPill("💡", "Explícame"))
+	pillsBox.Append(createPill("💻", "Escribe"))
+	pillsBox.Append(createPill("📝", "Resume"))
+	pillsBox.Append(createPill("🌐", "Traduce"))
+
+	cv.welcomeView.Append(pillsBox)
+
+	// Loading view with spinner
+	cv.loadingView = gtk.NewBox(gtk.OrientationVertical, 12)
+	cv.loadingView.SetVExpand(true)
+	cv.loadingView.SetVAlign(gtk.AlignCenter)
+	cv.loadingView.SetHAlign(gtk.AlignCenter)
+
+	spinner := gtk.NewSpinner()
+	spinner.SetSizeRequest(32, 32)
+	spinner.Start()
+	cv.loadingView.Append(spinner)
+
+	loadingLabel := gtk.NewLabel("Cargando...")
+	loadingLabel.AddCSSClass("dim-label")
+	cv.loadingView.Append(loadingLabel)
+
+	// Scrolled window for messages (starts with welcome view)
 	cv.scrolled = gtk.NewScrolledWindow()
-	cv.scrolled.SetChild(cv.messagesBox)
+	cv.scrolled.SetChild(cv.welcomeView)
 	cv.scrolled.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	cv.scrolled.SetVExpand(true)
 	cv.Append(cv.scrolled)
@@ -84,6 +189,7 @@ func (cv *ChatView) setupUI() {
 	cv.inputArea = NewInputArea()
 	cv.inputArea.OnSend(cv.onSendMessage)
 	cv.inputArea.OnAttach(cv.onAttachFile)
+	cv.inputArea.OnStop(cv.StopStreaming)
 	cv.Append(cv.inputArea)
 }
 
@@ -134,11 +240,25 @@ func (cv *ChatView) onAttachFile() {
 
 	// Add file filters
 	allFilter := gtk.NewFileFilter()
-	allFilter.SetName("Supported Documents")
+	allFilter.SetName("All Supported Files")
 	allFilter.AddPattern("*.txt")
 	allFilter.AddPattern("*.md")
 	allFilter.AddPattern("*.pdf")
+	allFilter.AddPattern("*.jpg")
+	allFilter.AddPattern("*.jpeg")
+	allFilter.AddPattern("*.png")
+	allFilter.AddPattern("*.webp")
+	allFilter.AddPattern("*.gif")
 	dialog.AddFilter(allFilter)
+
+	imageFilter := gtk.NewFileFilter()
+	imageFilter.SetName("Images")
+	imageFilter.AddPattern("*.jpg")
+	imageFilter.AddPattern("*.jpeg")
+	imageFilter.AddPattern("*.png")
+	imageFilter.AddPattern("*.webp")
+	imageFilter.AddPattern("*.gif")
+	dialog.AddFilter(imageFilter)
 
 	textFilter := gtk.NewFileFilter()
 	textFilter.SetName("Text Files")
@@ -212,7 +332,7 @@ func (cv *ChatView) onSendMessage(text string) {
 	}
 
 	// Build full prompt with attachments
-	fullPrompt := cv.buildPromptWithAttachments(text)
+	data := cv.buildPromptWithAttachments(text)
 
 	// Create chat if needed
 	if cv.currentChat == nil {
@@ -234,49 +354,78 @@ func (cv *ChatView) onSendMessage(text string) {
 	}
 	cv.addMessage(store.RoleUser, displayText)
 
+	// Get attachments before clearing (need for DB save)
+	attachments := cv.inputArea.GetAttachments()
+
 	// Clear attachments after using them
 	cv.inputArea.ClearAttachments()
 
-	// Save to database
+	// Save to database with attachments
 	if cv.db != nil && cv.currentChat != nil {
-		cv.db.AddMessage(cv.currentChat.ID, store.RoleUser, displayText)
+		msg, err := cv.db.AddMessage(cv.currentChat.ID, store.RoleUser, displayText)
+		if err == nil && len(attachments) > 0 {
+			for _, pill := range attachments {
+				err := cv.db.AddAttachment(msg.ID, pill.Filename(), pill.Content())
+				if err != nil {
+					logger.Error("Failed to save attachment", "filename", pill.Filename(), "error", err)
+				} else {
+					logger.Info("Attachment saved", "messageID", msg.ID, "filename", pill.Filename(), "contentLen", len(pill.Content()))
+				}
+			}
+		}
 	}
 
 	// Check if model exists, pull if needed, then stream
-	cv.ensureModelAndStream(fullPrompt)
+	cv.ensureModelAndStream(data)
 }
 
-func (cv *ChatView) buildPromptWithAttachments(userText string) string {
+// attachmentData holds parsed attachment information.
+type attachmentData struct {
+	textContent string
+	images      []string
+}
+
+func (cv *ChatView) buildPromptWithAttachments(userText string) attachmentData {
 	attachments := cv.inputArea.GetAttachments()
 	if len(attachments) == 0 {
-		return userText
+		return attachmentData{textContent: userText}
 	}
 
 	var builder strings.Builder
+	var images []string
 
-	// Add document context
+	// Separate images from documents
 	for _, pill := range attachments {
-		builder.WriteString(fmt.Sprintf("[Document: %s]\n", pill.Filename()))
-		builder.WriteString(pill.Content())
-		builder.WriteString("\n\n")
+		if pill.IsImage() {
+			images = append(images, pill.Content())
+		} else {
+			builder.WriteString(fmt.Sprintf("[Document: %s]\n", pill.Filename()))
+			builder.WriteString(pill.Content())
+			builder.WriteString("\n\n")
+		}
 	}
 
 	// Add user's question/message
 	if userText != "" {
-		builder.WriteString("User question: ")
+		if builder.Len() > 0 {
+			builder.WriteString("User question: ")
+		}
 		builder.WriteString(userText)
 	}
 
-	return builder.String()
+	return attachmentData{
+		textContent: builder.String(),
+		images:      images,
+	}
 }
 
-func (cv *ChatView) ensureModelAndStream(userMessage string) {
+func (cv *ChatView) ensureModelAndStream(data attachmentData) {
 	ctx := context.Background()
 
 	// Check if model exists locally
 	if cv.ollamaClient.HasModel(ctx, cv.currentModel) {
 		logger.Debug("Model available locally", "model", cv.currentModel)
-		cv.startStreaming(userMessage)
+		cv.startStreaming(data)
 		return
 	}
 
@@ -327,7 +476,7 @@ func (cv *ChatView) ensureModelAndStream(userMessage string) {
 			cv.isStreaming = false
 
 			// Now start the actual chat
-			cv.startStreaming(userMessage)
+			cv.startStreaming(data)
 		})
 	}()
 }
@@ -352,6 +501,11 @@ func (cv *ChatView) createNewChat() {
 }
 
 func (cv *ChatView) addMessage(role store.Role, content string) *MessageBubble {
+	// Switch from welcome view to messages on first message (only if showing welcome)
+	if len(cv.messages) == 0 && cv.scrolled.Child() == cv.welcomeView {
+		cv.scrolled.SetChild(cv.messagesBox)
+	}
+
 	bubble := NewMessageBubble(role, content)
 	cv.messages = append(cv.messages, bubble)
 	cv.messagesBox.Append(bubble)
@@ -359,25 +513,39 @@ func (cv *ChatView) addMessage(role store.Role, content string) *MessageBubble {
 	return bubble
 }
 
-func (cv *ChatView) startStreaming(userMessage string) {
+func (cv *ChatView) startStreaming(data attachmentData) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cv.streamCancel = cancel
+
 	cv.isStreaming = true
-	cv.inputArea.SetInputSensitive(false)
+	cv.inputArea.SetStreamingMode(true)
 
 	// Create placeholder for response
 	cv.currentBubble = cv.addMessage(store.RoleAssistant, "")
 
 	// Build message history
 	messages := cv.buildMessageHistory()
-	messages = append(messages, ollama.Message{
+
+	// Log what we're sending
+	logger.Info("Sending to model", "historyCount", len(messages), "newContentLen", len(data.textContent))
+	for i, m := range messages {
+		logger.Info("History message", "index", i, "role", m.Role, "contentLen", len(m.Content))
+	}
+
+	// Add user message with optional images
+	userMsg := ollama.Message{
 		Role:    "user",
-		Content: userMessage,
-	})
+		Content: data.textContent,
+	}
+	if len(data.images) > 0 {
+		userMsg.Images = data.images
+	}
+	messages = append(messages, userMsg)
 
 	// Start streaming in goroutine
 	go func() {
 		var response strings.Builder
 
-		ctx := context.Background()
 		err := cv.streamHandler.Chat(ctx, &ollama.ChatRequest{
 			Model:    cv.currentModel,
 			Messages: messages,
@@ -394,27 +562,89 @@ func (cv *ChatView) startStreaming(userMessage string) {
 
 		// Finalize on main thread
 		glib.IdleAdd(func() {
+			cv.streamCancel = nil
 			cv.isStreaming = false
-			cv.inputArea.SetInputSensitive(true)
+			cv.inputArea.SetStreamingMode(false)
 			cv.inputArea.Focus()
 
-			if err != nil {
+			// Don't show error if user cancelled
+			if err != nil && err != context.Canceled {
 				cv.handleError(err)
 				return
 			}
 
-			// Save assistant response to database
+			// Save assistant response to database (even if cancelled, save partial)
 			finalContent := response.String()
 			if cv.db != nil && cv.currentChat != nil && finalContent != "" {
 				cv.db.AddMessage(cv.currentChat.ID, store.RoleAssistant, finalContent)
+
+				// Generate title for new chats
+				if cv.currentChat.Title == "New Chat" {
+					go cv.generateTitle()
+				}
 			}
 		})
 	}()
 }
 
+// StopStreaming cancels the current streaming response.
+func (cv *ChatView) StopStreaming() {
+	if cv.streamCancel != nil {
+		cv.streamCancel()
+	}
+}
+
 func (cv *ChatView) buildMessageHistory() []ollama.Message {
 	var messages []ollama.Message
 
+	// Build effective system prompt (chat-specific > global, + language instruction)
+	chatPrompt := ""
+	if cv.currentChat != nil {
+		chatPrompt = cv.currentChat.SystemPrompt
+	}
+
+	var systemPrompt string
+	if cv.appConfig != nil {
+		systemPrompt = cv.appConfig.GetEffectiveSystemPrompt(chatPrompt)
+	} else if chatPrompt != "" {
+		systemPrompt = chatPrompt
+	}
+
+	if systemPrompt != "" {
+		messages = append(messages, ollama.Message{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	}
+
+	// If we have DB, load messages with attachments for full context
+	if cv.db != nil && cv.currentChat != nil {
+		dbMessages, err := cv.db.GetMessages(cv.currentChat.ID)
+		if err == nil {
+			logger.Info("Building message history from DB", "chatID", cv.currentChat.ID, "messageCount", len(dbMessages))
+			for _, msg := range dbMessages {
+				content := msg.Content
+
+				// For user messages, check if there are attachments
+				if msg.Role == store.RoleUser {
+					attachments, _ := cv.db.GetMessageAttachments(msg.ID)
+					logger.Info("Checking attachments for message", "messageID", msg.ID, "attachmentCount", len(attachments))
+					if len(attachments) > 0 {
+						content = cv.rebuildContentWithAttachments(msg.Content, attachments)
+						logger.Info("Rebuilt content with attachments", "originalLen", len(msg.Content), "newLen", len(content))
+					}
+				}
+
+				messages = append(messages, ollama.Message{
+					Role:    string(msg.Role),
+					Content: content,
+				})
+			}
+			return messages
+		}
+	}
+
+	// Fallback to bubbles in memory (no DB or error)
 	for _, bubble := range cv.messages {
 		if bubble == cv.currentBubble {
 			continue // Skip the current streaming bubble
@@ -436,6 +666,43 @@ func (cv *ChatView) buildMessageHistory() []ollama.Message {
 	return messages
 }
 
+// rebuildContentWithAttachments reconstructs the full prompt from display text and attachments.
+func (cv *ChatView) rebuildContentWithAttachments(displayText string, attachments []store.Attachment) string {
+	var builder strings.Builder
+
+	// Add document contents
+	for _, att := range attachments {
+		builder.WriteString(fmt.Sprintf("[Document: %s]\n", att.Filename))
+		builder.WriteString(att.Content)
+		builder.WriteString("\n\n")
+	}
+
+	// Extract user's actual text (remove the [📎 ...] prefix)
+	userText := extractUserText(displayText)
+	if userText != "" {
+		if builder.Len() > 0 {
+			builder.WriteString("User question: ")
+		}
+		builder.WriteString(userText)
+	}
+
+	return builder.String()
+}
+
+// extractUserText removes the attachment indicator prefix from display text.
+func extractUserText(displayText string) string {
+	// Remove "[📎 filename]\n\n" or "[📎 filename]" prefix
+	if strings.HasPrefix(displayText, "[📎") {
+		if idx := strings.Index(displayText, "]\n\n"); idx != -1 {
+			return displayText[idx+3:]
+		}
+		if idx := strings.Index(displayText, "]"); idx != -1 {
+			return strings.TrimSpace(displayText[idx+1:])
+		}
+	}
+	return displayText
+}
+
 func (cv *ChatView) scrollToBottom() {
 	adj := cv.scrolled.VAdjustment()
 	adj.SetValue(adj.Upper() - adj.PageSize())
@@ -453,26 +720,58 @@ func (cv *ChatView) SetModel(model string) {
 	cv.currentModel = model
 }
 
+// SetAppConfig sets the application configuration.
+func (cv *ChatView) SetAppConfig(cfg *config.AppConfig) {
+	cv.appConfig = cfg
+}
+
 // SetChat loads an existing chat.
 func (cv *ChatView) SetChat(chat *store.Chat) {
 	cv.currentChat = chat
 	cv.currentModel = chat.Model
+	cv.inputArea.SetModel(chat.Model)
 	cv.clearMessages()
 
 	if cv.db == nil {
 		return
 	}
 
-	// Load messages from database
-	messages, err := cv.db.GetMessages(chat.ID)
-	if err != nil {
-		cv.handleError(err)
-		return
-	}
+	// Show loading spinner
+	cv.scrolled.SetChild(cv.loadingView)
 
-	for _, msg := range messages {
-		cv.addMessage(msg.Role, msg.Content)
-	}
+	// Capture chat ID for the goroutine
+	chatID := chat.ID
+
+	// Load messages asynchronously
+	go func() {
+		messages, err := cv.db.GetMessages(chatID)
+
+		// Update UI on main thread
+		glib.IdleAdd(func() {
+			// Check if we're still on the same chat
+			if cv.currentChat == nil || cv.currentChat.ID != chatID {
+				return
+			}
+
+			if err != nil {
+				cv.handleError(err)
+				cv.scrolled.SetChild(cv.welcomeView)
+				return
+			}
+
+			// Switch to messages view
+			cv.scrolled.SetChild(cv.messagesBox)
+
+			for _, msg := range messages {
+				cv.addMessage(msg.Role, msg.Content)
+			}
+
+			// If no messages, show welcome view
+			if len(messages) == 0 {
+				cv.scrolled.SetChild(cv.welcomeView)
+			}
+		})
+	}()
 }
 
 // NewChat starts a new chat.
@@ -481,12 +780,23 @@ func (cv *ChatView) NewChat() {
 	cv.clearMessages()
 }
 
+// EnsureChat creates a new chat if none exists.
+func (cv *ChatView) EnsureChat(model string) {
+	if cv.currentChat == nil {
+		cv.currentModel = model
+		cv.createNewChat()
+	}
+}
+
 func (cv *ChatView) clearMessages() {
 	for _, bubble := range cv.messages {
 		cv.messagesBox.Remove(bubble)
 	}
 	cv.messages = nil
 	cv.currentBubble = nil
+
+	// Show welcome view again
+	cv.scrolled.SetChild(cv.welcomeView)
 }
 
 // OnError sets the error callback.
@@ -497,4 +807,88 @@ func (cv *ChatView) OnError(callback func(error)) {
 // IsStreaming returns whether a response is currently streaming.
 func (cv *ChatView) IsStreaming() bool {
 	return cv.isStreaming
+}
+
+// GetCurrentChat returns the current chat.
+func (cv *ChatView) GetCurrentChat() *store.Chat {
+	return cv.currentChat
+}
+
+// GetInputArea returns the input area for external access.
+func (cv *ChatView) GetInputArea() *InputArea {
+	return cv.inputArea
+}
+
+// OnTitleChanged sets the callback for when the chat title changes.
+func (cv *ChatView) OnTitleChanged(callback func(string)) {
+	cv.onTitleChanged = callback
+}
+
+// generateTitle asks the model to generate a short title for the conversation.
+func (cv *ChatView) generateTitle() {
+	if cv.db == nil || cv.currentChat == nil || len(cv.messages) < 2 {
+		return
+	}
+
+	// Get first user message
+	var userMsg string
+	for _, bubble := range cv.messages {
+		if bubble.GetRole() == store.RoleUser {
+			userMsg = bubble.GetContent()
+			break
+		}
+	}
+
+	if userMsg == "" {
+		return
+	}
+
+	// Truncate if too long
+	if len(userMsg) > 200 {
+		userMsg = userMsg[:200]
+	}
+
+	logger.Info("Generating title for chat", "chatID", cv.currentChat.ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	prompt := fmt.Sprintf("Generate a very short title (3-5 words max) for a conversation that starts with: %q\nRespond with ONLY the title, nothing else.", userMsg)
+
+	var title strings.Builder
+	err := cv.streamHandler.Chat(ctx, &ollama.ChatRequest{
+		Model:    cv.currentModel,
+		Messages: []ollama.Message{{Role: "user", Content: prompt}},
+	}, func(token string) {
+		title.WriteString(token)
+	})
+
+	if err != nil {
+		logger.Error("Failed to generate title", "error", err)
+		return
+	}
+
+	newTitle := strings.TrimSpace(title.String())
+	// Remove quotes if present
+	newTitle = strings.Trim(newTitle, "\"'")
+
+	if newTitle == "" || len(newTitle) > 60 {
+		return
+	}
+
+	// Update in database
+	if err := cv.db.UpdateChatTitle(cv.currentChat.ID, newTitle); err != nil {
+		logger.Error("Failed to update chat title", "error", err)
+		return
+	}
+
+	cv.currentChat.Title = newTitle
+	logger.Info("Chat title updated", "chatID", cv.currentChat.ID, "title", newTitle)
+
+	// Notify UI on main thread
+	glib.IdleAdd(func() {
+		if cv.onTitleChanged != nil {
+			cv.onTitleChanged(newTitle)
+		}
+	})
 }

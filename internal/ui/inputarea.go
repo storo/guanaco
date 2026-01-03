@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/storo/guanaco/internal/ollama"
 )
 
 // InputArea is the chat input widget with expandable text entry.
@@ -17,15 +19,25 @@ type InputArea struct {
 	// Input components
 	textView     *gtk.TextView
 	sendButton   *gtk.Button
+	stopButton   *gtk.Button
 	attachButton *gtk.Button
 	scrolled     *gtk.ScrolledWindow
+
+	// Model selector
+	modelButton  *gtk.MenuButton
+	modelLabel   *gtk.Label
+	modelListBox *gtk.ListBox
+	models       []ollama.Model
+	currentModel string
 
 	// State
 	attachments []*AttachmentPill
 
 	// Callbacks
-	onSend   func(text string)
-	onAttach func()
+	onSend         func(text string)
+	onAttach       func()
+	onStop         func()
+	onModelChanged func(string)
 }
 
 // NewInputArea creates a new input area.
@@ -35,9 +47,9 @@ func NewInputArea() *InputArea {
 	ia.Box = gtk.NewBox(gtk.OrientationVertical, 4)
 	ia.AddCSSClass("input-area")
 	ia.SetMarginTop(8)
-	ia.SetMarginBottom(8)
-	ia.SetMarginStart(8)
-	ia.SetMarginEnd(8)
+	ia.SetMarginBottom(16)
+	ia.SetMarginStart(16)
+	ia.SetMarginEnd(16)
 
 	ia.setupUI()
 
@@ -92,11 +104,48 @@ func (ia *InputArea) setupUI() {
 	ia.scrolled = gtk.NewScrolledWindow()
 	ia.scrolled.SetChild(ia.textView)
 	ia.scrolled.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	ia.scrolled.SetMinContentHeight(40)
 	ia.scrolled.SetMaxContentHeight(150)
 	ia.scrolled.SetPropagateNaturalHeight(true)
 	ia.scrolled.SetHExpand(true)
 	ia.scrolled.AddCSSClass("input-scrolled")
 	ia.inputBox.Append(ia.scrolled)
+
+	// Model selector dropdown
+	ia.modelLabel = gtk.NewLabel("model")
+	ia.modelLabel.AddCSSClass("dim-label")
+
+	ia.modelButton = gtk.NewMenuButton()
+	ia.modelButton.SetChild(ia.modelLabel)
+	ia.modelButton.AddCSSClass("flat")
+	ia.modelButton.SetVAlign(gtk.AlignEnd)
+	ia.modelButton.SetTooltipText("Select model")
+
+	// Create popover with model list
+	popover := gtk.NewPopover()
+	popover.SetAutohide(true)
+
+	ia.modelListBox = gtk.NewListBox()
+	ia.modelListBox.SetSelectionMode(gtk.SelectionSingle)
+	ia.modelListBox.AddCSSClass("boxed-list")
+	ia.modelListBox.ConnectRowActivated(func(row *gtk.ListBoxRow) {
+		idx := row.Index()
+		if idx >= 0 && idx < len(ia.models) {
+			ia.selectModel(ia.models[idx].Name)
+			popover.Popdown()
+		}
+	})
+
+	scrolledList := gtk.NewScrolledWindow()
+	scrolledList.SetChild(ia.modelListBox)
+	scrolledList.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	scrolledList.SetMinContentHeight(100)
+	scrolledList.SetMaxContentHeight(250)
+	scrolledList.SetSizeRequest(200, -1)
+
+	popover.SetChild(scrolledList)
+	ia.modelButton.SetPopover(popover)
+	ia.inputBox.Append(ia.modelButton)
 
 	// Send button
 	ia.sendButton = gtk.NewButton()
@@ -107,6 +156,21 @@ func (ia *InputArea) setupUI() {
 	ia.sendButton.SetVAlign(gtk.AlignEnd)
 	ia.sendButton.ConnectClicked(ia.send)
 	ia.inputBox.Append(ia.sendButton)
+
+	// Stop button (hidden initially, shown during streaming)
+	ia.stopButton = gtk.NewButton()
+	ia.stopButton.SetIconName("media-playback-stop-symbolic")
+	ia.stopButton.SetTooltipText("Stop generation")
+	ia.stopButton.AddCSSClass("destructive-action")
+	ia.stopButton.AddCSSClass("circular")
+	ia.stopButton.SetVAlign(gtk.AlignEnd)
+	ia.stopButton.SetVisible(false)
+	ia.stopButton.ConnectClicked(func() {
+		if ia.onStop != nil {
+			ia.onStop()
+		}
+	})
+	ia.inputBox.Append(ia.stopButton)
 }
 
 func (ia *InputArea) send() {
@@ -207,4 +271,75 @@ func (ia *InputArea) ClearAttachments() {
 // HasAttachments returns true if there are any attachments.
 func (ia *InputArea) HasAttachments() bool {
 	return len(ia.attachments) > 0
+}
+
+// OnStop sets the callback for when the stop button is clicked.
+func (ia *InputArea) OnStop(callback func()) {
+	ia.onStop = callback
+}
+
+// SetStreamingMode toggles between send and stop buttons.
+func (ia *InputArea) SetStreamingMode(streaming bool) {
+	ia.sendButton.SetVisible(!streaming)
+	ia.stopButton.SetVisible(streaming)
+	ia.textView.SetSensitive(!streaming)
+	ia.attachButton.SetSensitive(!streaming)
+}
+
+// selectModel updates the current model and triggers callback.
+func (ia *InputArea) selectModel(model string) {
+	ia.currentModel = model
+	ia.modelLabel.SetText(model)
+	if ia.onModelChanged != nil {
+		ia.onModelChanged(model)
+	}
+}
+
+// SetModels updates the list of available models.
+func (ia *InputArea) SetModels(models []ollama.Model) {
+	ia.models = models
+
+	// Clear existing rows
+	for {
+		row := ia.modelListBox.RowAtIndex(0)
+		if row == nil {
+			break
+		}
+		ia.modelListBox.Remove(row)
+	}
+
+	// Add model rows
+	for _, model := range models {
+		label := gtk.NewLabel(model.Name)
+		label.SetXAlign(0)
+		label.SetMarginTop(8)
+		label.SetMarginBottom(8)
+		label.SetMarginStart(12)
+		label.SetMarginEnd(12)
+
+		row := gtk.NewListBoxRow()
+		row.SetChild(label)
+		ia.modelListBox.Append(row)
+	}
+
+	// Select first model if none selected
+	if len(models) > 0 && ia.currentModel == "" {
+		ia.selectModel(models[0].Name)
+	}
+}
+
+// SetModel sets the current model.
+func (ia *InputArea) SetModel(model string) {
+	ia.currentModel = model
+	ia.modelLabel.SetText(model)
+}
+
+// CurrentModel returns the currently selected model.
+func (ia *InputArea) CurrentModel() string {
+	return ia.currentModel
+}
+
+// OnModelChanged sets the callback for when the model changes.
+func (ia *InputArea) OnModelChanged(callback func(string)) {
+	ia.onModelChanged = callback
 }

@@ -14,11 +14,12 @@ const (
 
 // Chat represents a conversation with the AI.
 type Chat struct {
-	ID        int64     `json:"id"`
-	Title     string    `json:"title"`
-	Model     string    `json:"model"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           int64     `json:"id"`
+	Title        string    `json:"title"`
+	Model        string    `json:"model"`
+	SystemPrompt string    `json:"system_prompt"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Message represents a single message in a chat.
