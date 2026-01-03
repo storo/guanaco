@@ -1,21 +1,28 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 )
 
-// CodeBlock is a widget that displays code with a copy button.
+// Shared syntax highlighter instance
+var sharedHighlighter = NewSyntaxHighlighter()
+
+// CodeBlock is a widget that displays code with syntax highlighting and a copy button.
 type CodeBlock struct {
 	*gtk.Box
 
 	// UI components
-	header    *gtk.Box
-	langLabel *gtk.Label
-	copyBtn   *gtk.Button
-	codeLabel *gtk.Label
+	header     *gtk.Box
+	langLabel  *gtk.Label
+	copyBtn    *gtk.Button
+	textView   *gtk.TextView
+	textBuffer *gtk.TextBuffer
+	scrolled   *gtk.ScrolledWindow
 
 	// Data
 	code     string
@@ -33,6 +40,7 @@ func NewCodeBlock(code, language string) *CodeBlock {
 	cb.AddCSSClass("code-block")
 
 	cb.setupUI()
+	cb.applyHighlighting()
 
 	return cb
 }
@@ -71,18 +79,87 @@ func (cb *CodeBlock) setupUI() {
 
 	cb.Append(cb.header)
 
-	// Code content
-	cb.codeLabel = gtk.NewLabel(cb.code)
-	cb.codeLabel.AddCSSClass("code-content")
-	cb.codeLabel.SetWrap(true)
-	cb.codeLabel.SetWrapMode(pango.WrapWordChar)
-	cb.codeLabel.SetXAlign(0)
-	cb.codeLabel.SetSelectable(true)
-	cb.codeLabel.SetMarginStart(12)
-	cb.codeLabel.SetMarginEnd(12)
-	cb.codeLabel.SetMarginBottom(12)
+	// Create text buffer and view for syntax highlighting
+	cb.textBuffer = gtk.NewTextBuffer(nil)
+	cb.textView = gtk.NewTextViewWithBuffer(cb.textBuffer)
+	cb.textView.SetEditable(false)
+	cb.textView.SetCursorVisible(false)
+	cb.textView.SetMonospace(true)
+	cb.textView.AddCSSClass("code-content")
+	cb.textView.SetWrapMode(gtk.WrapWordChar)
+	cb.textView.SetLeftMargin(12)
+	cb.textView.SetRightMargin(12)
+	cb.textView.SetTopMargin(4)
+	cb.textView.SetBottomMargin(12)
 
-	cb.Append(cb.codeLabel)
+	// Wrap in scrolled window for horizontal scrolling on long lines
+	cb.scrolled = gtk.NewScrolledWindow()
+	cb.scrolled.SetChild(cb.textView)
+	cb.scrolled.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyNever)
+	cb.scrolled.SetMinContentHeight(20)
+	cb.scrolled.SetMaxContentHeight(400)
+
+	cb.Append(cb.scrolled)
+}
+
+func (cb *CodeBlock) applyHighlighting() {
+	tokens := sharedHighlighter.Highlight(cb.code, cb.language)
+
+	// Clear buffer
+	cb.textBuffer.SetText("")
+
+	// Get iterator at start
+	iter := cb.textBuffer.StartIter()
+
+	for _, tok := range tokens {
+		if tok.Text == "" {
+			continue
+		}
+
+		// Create or get tag for this style
+		tag := cb.getOrCreateTag(tok.Color, tok.Bold, tok.Italic)
+
+		if tag != nil {
+			// Insert with tag
+			startOffset := iter.Offset()
+			cb.textBuffer.Insert(iter, tok.Text)
+			startIter := cb.textBuffer.IterAtOffset(startOffset)
+			endIter := cb.textBuffer.IterAtOffset(iter.Offset())
+			cb.textBuffer.ApplyTag(tag, startIter, endIter)
+		} else {
+			// Insert without tag
+			cb.textBuffer.Insert(iter, tok.Text)
+		}
+	}
+}
+
+func (cb *CodeBlock) getOrCreateTag(color string, bold, italic bool) *gtk.TextTag {
+	if color == "" && !bold && !italic {
+		return nil
+	}
+
+	tagName := fmt.Sprintf("syntax_%s_%v_%v", color, bold, italic)
+
+	tagTable := cb.textBuffer.TagTable()
+	tag := tagTable.Lookup(tagName)
+
+	if tag == nil {
+		tag = gtk.NewTextTag(tagName)
+
+		if color != "" {
+			tag.SetObjectProperty("foreground", color)
+		}
+		if bold {
+			tag.SetObjectProperty("weight", pango.WeightBold)
+		}
+		if italic {
+			tag.SetObjectProperty("style", pango.StyleItalic)
+		}
+
+		tagTable.Add(tag)
+	}
+
+	return tag
 }
 
 func (cb *CodeBlock) copyToClipboard() {
@@ -102,10 +179,10 @@ func (cb *CodeBlock) copyToClipboard() {
 	})
 }
 
-// SetCode updates the code content.
+// SetCode updates the code content with new highlighting.
 func (cb *CodeBlock) SetCode(code string) {
 	cb.code = code
-	cb.codeLabel.SetText(code)
+	cb.applyHighlighting()
 }
 
 // GetCode returns the code content.

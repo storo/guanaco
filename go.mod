@@ -12,6 +12,8 @@ require (
 
 require (
 	github.com/KarpelesLab/weak v0.1.1 // indirect
+	github.com/alecthomas/chroma/v2 v2.21.1 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect

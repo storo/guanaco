@@ -73,7 +73,7 @@ const styleCSS = `
 
 /* Code Blocks */
 .code-block {
-  background: @headerbar_bg_color;
+  background: #282a36;
   border-radius: 8px;
   margin: 4px 0;
 }
@@ -85,11 +85,18 @@ const styleCSS = `
 .code-lang {
   font-size: 12px;
   opacity: 0.7;
+  color: #f8f8f2;
 }
 
 .code-content {
   font-family: monospace;
   font-size: 13px;
+  color: #f8f8f2;
+  background: transparent;
+}
+
+.code-content text {
+  background: transparent;
 }
 
 /* Welcome Screen */
