@@ -124,7 +124,6 @@ func (w *MainWindow) setupUI() {
 	})
 	w.chatView.OnChatCreated(func(chat *store.Chat) {
 		w.sidebar.AddChat(chat)
-		w.sidebar.SelectChat(chat)
 	})
 	w.chatView.GetInputArea().OnModelChanged(w.onModelChanged)
 
