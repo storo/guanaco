@@ -750,6 +750,11 @@ func (cv *ChatView) SetAppConfig(cfg *config.AppConfig) {
 
 // SetChat loads an existing chat.
 func (cv *ChatView) SetChat(chat *store.Chat) {
+	// Skip if already viewing this chat (prevents reload during streaming)
+	if cv.currentChat != nil && cv.currentChat.ID == chat.ID {
+		return
+	}
+
 	cv.currentChat = chat
 	cv.currentModel = chat.Model
 	cv.inputArea.SetModel(chat.Model)
