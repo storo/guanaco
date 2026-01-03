@@ -894,7 +894,13 @@ func (cv *ChatView) generateTitle() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Build prompt with language preference
 	prompt := fmt.Sprintf("Generate a very short title (3-5 words max) for a conversation that starts with: %q\nRespond with ONLY the title, nothing else.", userMsg)
+	if cv.appConfig != nil {
+		if langInstruction := cv.appConfig.LanguageInstruction(); langInstruction != "" {
+			prompt = prompt + "\n" + langInstruction
+		}
+	}
 
 	var title strings.Builder
 	err := cv.streamHandler.Chat(ctx, &ollama.ChatRequest{
