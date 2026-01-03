@@ -56,11 +56,12 @@ type ChatView struct {
 	inputArea   *InputArea
 
 	// State
-	messages      []*MessageBubble
-	currentBubble *MessageBubble
-	isStreaming   bool
-	streamCancel  context.CancelFunc
-	userAtBottom  bool // Track if user is at bottom for auto-scroll
+	messages       []*MessageBubble
+	currentBubble  *MessageBubble
+	isStreaming    bool
+	streamCancel   context.CancelFunc
+	userAtBottom   bool // Track if user is at bottom for auto-scroll
+	showingWelcome bool // Track if welcome view is showing
 
 	// Dependencies
 	ollamaClient  *ollama.Client
@@ -80,11 +81,12 @@ type ChatView struct {
 // NewChatView creates a new chat view.
 func NewChatView(client *ollama.Client, db *store.DB) *ChatView {
 	cv := &ChatView{
-		ollamaClient:  client,
-		streamHandler: ollama.NewStreamHandler(client),
-		db:            db,
-		ragProcessor:  rag.NewProcessor(),
-		userAtBottom:  true, // Start at bottom
+		ollamaClient:   client,
+		streamHandler:  ollama.NewStreamHandler(client),
+		db:             db,
+		ragProcessor:   rag.NewProcessor(),
+		userAtBottom:   true, // Start at bottom
+		showingWelcome: true, // Start showing welcome view
 	}
 
 	cv.Box = gtk.NewBox(gtk.OrientationVertical, 0)
@@ -511,9 +513,10 @@ func (cv *ChatView) createNewChat() {
 }
 
 func (cv *ChatView) addMessage(role store.Role, content string) *MessageBubble {
-	// Switch from welcome view to messages on first message (only if showing welcome)
-	if len(cv.messages) == 0 && cv.scrolled.Child() == cv.welcomeView {
+	// Switch from welcome view to messages on first message
+	if cv.showingWelcome {
 		cv.scrolled.SetChild(cv.messagesBox)
+		cv.showingWelcome = false
 	}
 
 	bubble := NewMessageBubble(role, content)
@@ -766,6 +769,7 @@ func (cv *ChatView) SetChat(chat *store.Chat) {
 
 	// Show loading spinner
 	cv.scrolled.SetChild(cv.loadingView)
+	cv.showingWelcome = false // Loading view, not welcome
 
 	// Capture chat ID for the goroutine
 	chatID := chat.ID
@@ -784,11 +788,13 @@ func (cv *ChatView) SetChat(chat *store.Chat) {
 			if err != nil {
 				cv.handleError(err)
 				cv.scrolled.SetChild(cv.welcomeView)
+				cv.showingWelcome = true
 				return
 			}
 
 			// Switch to messages view
 			cv.scrolled.SetChild(cv.messagesBox)
+			cv.showingWelcome = false
 
 			for _, msg := range messages {
 				cv.addMessage(msg.Role, msg.Content)
@@ -797,6 +803,7 @@ func (cv *ChatView) SetChat(chat *store.Chat) {
 			// If no messages, show welcome view
 			if len(messages) == 0 {
 				cv.scrolled.SetChild(cv.welcomeView)
+				cv.showingWelcome = true
 			}
 		})
 	}()
@@ -825,6 +832,7 @@ func (cv *ChatView) clearMessages() {
 
 	// Show welcome view again
 	cv.scrolled.SetChild(cv.welcomeView)
+	cv.showingWelcome = true
 }
 
 // OnError sets the error callback.
