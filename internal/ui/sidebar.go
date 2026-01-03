@@ -238,8 +238,15 @@ func truncatePreview(s string, maxLen int) string {
 	return s[:maxLen] + "…"
 }
 
-// AddChat adds a new chat to the list.
+// AddChat adds a new chat to the list if not already present.
 func (sb *Sidebar) AddChat(chat *store.Chat) {
+	// Check if chat already exists
+	for _, c := range sb.chats {
+		if c.ID == chat.ID {
+			return // Already in list
+		}
+	}
+
 	sb.chats = append([]*store.Chat{chat}, sb.chats...)
 	row := sb.createChatRow(chat)
 	sb.listBox.Prepend(row)

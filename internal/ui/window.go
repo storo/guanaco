@@ -117,6 +117,14 @@ func (w *MainWindow) setupUI() {
 	})
 	w.chatView.OnTitleChanged(func(title string) {
 		w.sidebar.Refresh()
+		// Re-select the current chat after refresh
+		if chat := w.chatView.GetCurrentChat(); chat != nil {
+			w.sidebar.SelectChat(chat)
+		}
+	})
+	w.chatView.OnChatCreated(func(chat *store.Chat) {
+		w.sidebar.AddChat(chat)
+		w.sidebar.SelectChat(chat)
 	})
 	w.chatView.GetInputArea().OnModelChanged(w.onModelChanged)
 

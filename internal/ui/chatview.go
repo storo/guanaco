@@ -74,6 +74,7 @@ type ChatView struct {
 	// Callbacks
 	onError        func(error)
 	onTitleChanged func(string)
+	onChatCreated  func(*store.Chat)
 }
 
 // NewChatView creates a new chat view.
@@ -502,6 +503,11 @@ func (cv *ChatView) createNewChat() {
 		return
 	}
 	cv.currentChat = chat
+
+	// Notify that a new chat was created
+	if cv.onChatCreated != nil {
+		cv.onChatCreated(chat)
+	}
 }
 
 func (cv *ChatView) addMessage(role store.Role, content string) *MessageBubble {
@@ -839,6 +845,11 @@ func (cv *ChatView) GetInputArea() *InputArea {
 // OnTitleChanged sets the callback for when the chat title changes.
 func (cv *ChatView) OnTitleChanged(callback func(string)) {
 	cv.onTitleChanged = callback
+}
+
+// OnChatCreated sets the callback for when a new chat is created.
+func (cv *ChatView) OnChatCreated(callback func(*store.Chat)) {
+	cv.onChatCreated = callback
 }
 
 // generateTitle asks the model to generate a short title for the conversation.
