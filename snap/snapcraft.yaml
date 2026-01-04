@@ -52,7 +52,6 @@ parts:
   guanaco:
     plugin: go
     source: .
-    source-type: local
     build-snaps:
       - go/latest/stable
     build-packages:
@@ -63,7 +62,9 @@ parts:
       - libgtk-4-1
       - libadwaita-1-0
     override-build: |
-      go build -trimpath -ldflags="-s -w -X main.version=${SNAPCRAFT_PROJECT_VERSION}" -o $SNAPCRAFT_PART_INSTALL/bin/guanaco ./cmd/guanaco
+      cd ${CRAFT_PART_SRC}
+      mkdir -p ${CRAFT_PART_INSTALL}/bin
+      go build -trimpath -ldflags="-s -w -X main.version=${CRAFT_PROJECT_VERSION}" -o ${CRAFT_PART_INSTALL}/bin/guanaco ./cmd/guanaco
 
   desktop-files:
     plugin: dump
