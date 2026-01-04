@@ -215,3 +215,65 @@ func TestDB_CascadeDelete(t *testing.T) {
 		t.Errorf("Messages should be deleted with chat, got %d", len(messages))
 	}
 }
+
+func TestDB_GetAttachmentsForMessages(t *testing.T) {
+	db, err := NewDB(":memory:")
+	if err != nil {
+		t.Fatalf("NewDB() error = %v", err)
+	}
+	defer db.Close()
+
+	chat, _ := db.CreateChat("llama3")
+	msg1, _ := db.AddMessage(chat.ID, RoleUser, "First message")
+	msg2, _ := db.AddMessage(chat.ID, RoleUser, "Second message")
+	msg3, _ := db.AddMessage(chat.ID, RoleAssistant, "Response")
+
+	// Add attachments to first two messages
+	db.AddAttachment(msg1.ID, "doc1.pdf", "content1")
+	db.AddAttachment(msg1.ID, "doc2.txt", "content2")
+	db.AddAttachment(msg2.ID, "image.png", "imagedata")
+
+	t.Run("batch load attachments", func(t *testing.T) {
+		attachmentMap, err := db.GetAttachmentsForMessages([]int64{msg1.ID, msg2.ID, msg3.ID})
+		if err != nil {
+			t.Fatalf("GetAttachmentsForMessages() error = %v", err)
+		}
+
+		// msg1 should have 2 attachments
+		if len(attachmentMap[msg1.ID]) != 2 {
+			t.Errorf("msg1 attachments = %d, want 2", len(attachmentMap[msg1.ID]))
+		}
+
+		// msg2 should have 1 attachment
+		if len(attachmentMap[msg2.ID]) != 1 {
+			t.Errorf("msg2 attachments = %d, want 1", len(attachmentMap[msg2.ID]))
+		}
+
+		// msg3 should have no attachments
+		if len(attachmentMap[msg3.ID]) != 0 {
+			t.Errorf("msg3 attachments = %d, want 0", len(attachmentMap[msg3.ID]))
+		}
+	})
+
+	t.Run("empty message list", func(t *testing.T) {
+		attachmentMap, err := db.GetAttachmentsForMessages([]int64{})
+		if err != nil {
+			t.Fatalf("GetAttachmentsForMessages() error = %v", err)
+		}
+
+		if len(attachmentMap) != 0 {
+			t.Errorf("expected empty map, got %d entries", len(attachmentMap))
+		}
+	})
+
+	t.Run("nonexistent message IDs", func(t *testing.T) {
+		attachmentMap, err := db.GetAttachmentsForMessages([]int64{9999, 9998})
+		if err != nil {
+			t.Fatalf("GetAttachmentsForMessages() error = %v", err)
+		}
+
+		if len(attachmentMap) != 0 {
+			t.Errorf("expected empty map for nonexistent IDs, got %d entries", len(attachmentMap))
+		}
+	})
+}

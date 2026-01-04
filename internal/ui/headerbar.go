@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 // HeaderBar is the application header bar.
@@ -13,7 +15,6 @@ type HeaderBar struct {
 	toggleSidebarBtn *gtk.Button
 	downloadButton   *gtk.Button
 	settingsButton   *gtk.Button
-	menuButton       *gtk.MenuButton
 
 	// Callbacks
 	onToggleSidebar func()
@@ -38,7 +39,7 @@ func (hb *HeaderBar) setupUI() {
 	// Toggle sidebar button (start/left side)
 	hb.toggleSidebarBtn = gtk.NewButton()
 	hb.toggleSidebarBtn.SetIconName("sidebar-show-symbolic")
-	hb.toggleSidebarBtn.SetTooltipText("Toggle Sidebar")
+	hb.toggleSidebarBtn.SetTooltipText(i18n.T("Toggle Sidebar"))
 	hb.toggleSidebarBtn.ConnectClicked(func() {
 		if hb.onToggleSidebar != nil {
 			hb.onToggleSidebar()
@@ -46,16 +47,10 @@ func (hb *HeaderBar) setupUI() {
 	})
 	hb.PackStart(hb.toggleSidebarBtn)
 
-	// Menu button (hamburger menu)
-	hb.menuButton = gtk.NewMenuButton()
-	hb.menuButton.SetIconName("open-menu-symbolic")
-	hb.menuButton.SetTooltipText("Main Menu")
-	hb.PackEnd(hb.menuButton)
-
 	// Download model button
 	hb.downloadButton = gtk.NewButton()
 	hb.downloadButton.SetIconName("folder-download-symbolic")
-	hb.downloadButton.SetTooltipText("Download Model")
+	hb.downloadButton.SetTooltipText(i18n.T("Download Model"))
 	hb.downloadButton.ConnectClicked(func() {
 		if hb.onDownloadModel != nil {
 			hb.onDownloadModel()
@@ -66,7 +61,7 @@ func (hb *HeaderBar) setupUI() {
 	// Chat settings button (system prompt)
 	hb.settingsButton = gtk.NewButton()
 	hb.settingsButton.SetIconName("emblem-system-symbolic")
-	hb.settingsButton.SetTooltipText("Chat Settings")
+	hb.settingsButton.SetTooltipText(i18n.T("Chat Settings"))
 	hb.settingsButton.ConnectClicked(func() {
 		if hb.onChatSettings != nil {
 			hb.onChatSettings()

@@ -3,6 +3,7 @@ package ollama
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -108,8 +109,19 @@ type PullProgressCallback func(status string, completed, total int64)
 func (c *Client) PullModel(ctx context.Context, model string, callback PullProgressCallback) error {
 	url := c.baseURL + "/api/pull"
 
-	body := fmt.Sprintf(`{"name": "%s", "stream": true}`, model)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	// Use json.Marshal to safely encode the model name
+	reqBody := struct {
+		Name   string `json:"name"`
+		Stream bool   `json:"stream"`
+	}{
+		Name:   model,
+		Stream: true,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

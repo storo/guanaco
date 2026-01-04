@@ -7,6 +7,8 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
+
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 // Shared syntax highlighter instance
@@ -71,7 +73,7 @@ func (cb *CodeBlock) setupUI() {
 	// Copy button
 	cb.copyBtn = gtk.NewButton()
 	cb.copyBtn.SetIconName("edit-copy-symbolic")
-	cb.copyBtn.SetTooltipText("Copy code")
+	cb.copyBtn.SetTooltipText(i18n.T("Copy code"))
 	cb.copyBtn.AddCSSClass("flat")
 	cb.copyBtn.AddCSSClass("circular")
 	cb.copyBtn.ConnectClicked(cb.copyToClipboard)
@@ -169,12 +171,12 @@ func (cb *CodeBlock) copyToClipboard() {
 
 	// Visual feedback - change icon temporarily
 	cb.copyBtn.SetIconName("object-select-symbolic")
-	cb.copyBtn.SetTooltipText("Copied!")
+	cb.copyBtn.SetTooltipText(i18n.T("Copied!"))
 
 	// Reset after delay
 	glib.TimeoutAdd(1500, func() bool {
 		cb.copyBtn.SetIconName("edit-copy-symbolic")
-		cb.copyBtn.SetTooltipText("Copy code")
+		cb.copyBtn.SetTooltipText(i18n.T("Copy code"))
 		return false
 	})
 }

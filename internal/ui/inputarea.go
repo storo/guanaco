@@ -6,6 +6,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/i18n"
 	"github.com/storo/guanaco/internal/ollama"
 )
 
@@ -33,7 +34,8 @@ type InputArea struct {
 	currentModel string
 
 	// State
-	attachments []*AttachmentPill
+	attachments    []*AttachmentPill
+	loadingSpinner *gtk.Spinner
 
 	// Callbacks
 	onSend         func(text string)
@@ -72,7 +74,7 @@ func (ia *InputArea) setupUI() {
 	// Attach button
 	ia.attachButton = gtk.NewButton()
 	ia.attachButton.SetIconName("mail-attachment-symbolic")
-	ia.attachButton.SetTooltipText("Attach file")
+	ia.attachButton.SetTooltipText(i18n.T("Attach file"))
 	ia.attachButton.AddCSSClass("flat")
 	ia.attachButton.SetVAlign(gtk.AlignEnd)
 	ia.attachButton.ConnectClicked(func() {
@@ -126,7 +128,7 @@ func (ia *InputArea) setupUI() {
 	ia.modelButton.SetChild(ia.modelLabel)
 	ia.modelButton.AddCSSClass("flat")
 	ia.modelButton.SetVAlign(gtk.AlignEnd)
-	ia.modelButton.SetTooltipText("Select model")
+	ia.modelButton.SetTooltipText(i18n.T("Select model"))
 
 	// Create popover with model list
 	popover := gtk.NewPopover()
@@ -157,7 +159,7 @@ func (ia *InputArea) setupUI() {
 	// Send button
 	ia.sendButton = gtk.NewButton()
 	ia.sendButton.SetIconName("go-up-symbolic")
-	ia.sendButton.SetTooltipText("Send message (Ctrl+Enter)")
+	ia.sendButton.SetTooltipText(i18n.T("Send message (Ctrl+Enter)"))
 	ia.sendButton.AddCSSClass("suggested-action")
 	ia.sendButton.AddCSSClass("circular")
 	ia.sendButton.SetVAlign(gtk.AlignEnd)
@@ -167,7 +169,7 @@ func (ia *InputArea) setupUI() {
 	// Stop button (hidden initially, shown during streaming)
 	ia.stopButton = gtk.NewButton()
 	ia.stopButton.SetIconName("media-playback-stop-symbolic")
-	ia.stopButton.SetTooltipText("Stop generation")
+	ia.stopButton.SetTooltipText(i18n.T("Stop generation"))
 	ia.stopButton.AddCSSClass("destructive-action")
 	ia.stopButton.AddCSSClass("circular")
 	ia.stopButton.SetVAlign(gtk.AlignEnd)
@@ -278,6 +280,28 @@ func (ia *InputArea) ClearAttachments() {
 // HasAttachments returns true if there are any attachments.
 func (ia *InputArea) HasAttachments() bool {
 	return len(ia.attachments) > 0
+}
+
+// ShowLoadingIndicator shows a spinner while processing an attachment.
+func (ia *InputArea) ShowLoadingIndicator() {
+	if ia.loadingSpinner == nil {
+		ia.loadingSpinner = gtk.NewSpinner()
+		ia.loadingSpinner.SetSizeRequest(24, 24)
+	}
+	ia.loadingSpinner.Start()
+	ia.attachmentBox.Prepend(ia.loadingSpinner)
+	ia.attachmentBox.SetVisible(true)
+}
+
+// HideLoadingIndicator hides the processing spinner.
+func (ia *InputArea) HideLoadingIndicator() {
+	if ia.loadingSpinner != nil {
+		ia.loadingSpinner.Stop()
+		ia.attachmentBox.Remove(ia.loadingSpinner)
+		if len(ia.attachments) == 0 {
+			ia.attachmentBox.SetVisible(false)
+		}
+	}
 }
 
 // OnStop sets the callback for when the stop button is clicked.

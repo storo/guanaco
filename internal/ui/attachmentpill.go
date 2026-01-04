@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 // AttachmentPill is a visual widget showing an attached document.
@@ -76,7 +78,7 @@ func (p *AttachmentPill) setupUI() {
 	}
 
 	p.label = gtk.NewLabel(displayName)
-	p.label.SetTooltipText(fmt.Sprintf("%s (%d chars)", p.filename, len(p.content)))
+	p.label.SetTooltipText(fmt.Sprintf(i18n.T("%s (%d chars)"), p.filename, len(p.content)))
 	p.label.SetMarginStart(4)
 	p.label.SetMarginEnd(4)
 	p.Append(p.label)
@@ -86,7 +88,7 @@ func (p *AttachmentPill) setupUI() {
 	p.removeBtn.SetIconName("window-close-symbolic")
 	p.removeBtn.AddCSSClass("flat")
 	p.removeBtn.AddCSSClass("circular")
-	p.removeBtn.SetTooltipText("Remove attachment")
+	p.removeBtn.SetTooltipText(i18n.T("Remove attachment"))
 	p.removeBtn.ConnectClicked(func() {
 		if p.onRemove != nil {
 			p.onRemove()

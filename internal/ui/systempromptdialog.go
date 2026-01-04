@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 // SystemPromptDialog is a dialog for editing the system prompt.
@@ -28,7 +30,7 @@ func NewSystemPromptDialog(parent *gtk.Window, currentPrompt string) *SystemProm
 	}
 
 	d.Window = adw.NewWindow()
-	d.SetTitle("System Prompt")
+	d.SetTitle(i18n.T("System Prompt"))
 	d.SetModal(true)
 	d.SetDefaultSize(450, 380)
 	d.SetResizable(true)
@@ -46,7 +48,7 @@ func (d *SystemPromptDialog) setupUI() {
 	headerBar := adw.NewHeaderBar()
 	headerBar.SetShowEndTitleButtons(true)
 	headerBar.SetShowStartTitleButtons(true)
-	headerBar.SetTitleWidget(gtk.NewLabel("System Prompt"))
+	headerBar.SetTitleWidget(gtk.NewLabel(i18n.T("System Prompt")))
 
 	// Main content box
 	content := gtk.NewBox(gtk.OrientationVertical, 12)
@@ -56,7 +58,7 @@ func (d *SystemPromptDialog) setupUI() {
 	content.SetMarginEnd(24)
 
 	// Description
-	desc := gtk.NewLabel("Set instructions that define how the AI should behave in this chat.")
+	desc := gtk.NewLabel(i18n.T("Set instructions that define how the AI should behave in this chat."))
 	desc.AddCSSClass("dim-label")
 	desc.SetWrap(true)
 	desc.SetXAlign(0)
@@ -90,7 +92,7 @@ func (d *SystemPromptDialog) setupUI() {
 
 	// Cancel button
 	d.cancelBtn = gtk.NewButton()
-	d.cancelBtn.SetLabel("Cancel")
+	d.cancelBtn.SetLabel(i18n.T("Cancel"))
 	d.cancelBtn.ConnectClicked(func() {
 		d.Close()
 	})
@@ -98,7 +100,7 @@ func (d *SystemPromptDialog) setupUI() {
 
 	// Save button
 	d.saveBtn = gtk.NewButton()
-	d.saveBtn.SetLabel("Save")
+	d.saveBtn.SetLabel(i18n.T("Save"))
 	d.saveBtn.AddCSSClass("suggested-action")
 	d.saveBtn.ConnectClicked(func() {
 		buffer := d.textView.Buffer()

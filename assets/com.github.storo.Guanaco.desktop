@@ -1,7 +1,10 @@
 [Desktop Entry]
 Name=Guanaco
+Name[es]=Guanaco
 GenericName=AI Chat
+GenericName[es]=Chat con IA
 Comment=Chat with local AI models using Ollama
+Comment[es]=Chatea con modelos de IA locales usando Ollama
 Categories=Utility;Chat;
 Exec=guanaco
 Icon=com.github.storo.Guanaco
@@ -10,8 +13,3 @@ Type=Application
 Keywords=AI;LLM;Chat;Ollama;Llama;GPT;
 StartupNotify=true
 X-GNOME-UsesNotifications=false
-
-[Desktop Entry]
-Name[es]=Guanaco
-GenericName[es]=Chat con IA
-Comment[es]=Chatea con modelos de IA locales usando Ollama

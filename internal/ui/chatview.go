@@ -2,10 +2,13 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
@@ -13,7 +16,9 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/assets"
 	"github.com/storo/guanaco/internal/config"
+	"github.com/storo/guanaco/internal/i18n"
 	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 	"github.com/storo/guanaco/internal/rag"
@@ -25,11 +30,11 @@ func getGreeting() string {
 	hour := time.Now().Hour()
 	switch {
 	case hour >= 6 && hour < 12:
-		return "Buenos días"
+		return i18n.T("Good morning")
 	case hour >= 12 && hour < 19:
-		return "Buenas tardes"
+		return i18n.T("Good afternoon")
 	default:
-		return "Buenas noches"
+		return i18n.T("Good evening")
 	}
 }
 
@@ -42,6 +47,59 @@ func getUsername() string {
 		return u.Username
 	}
 	return ""
+}
+
+// tokenBuffer accumulates streaming tokens and flushes periodically to reduce UI updates.
+type tokenBuffer struct {
+	mu      sync.Mutex
+	content string
+	ticker  *time.Ticker
+	done    chan struct{}
+	onFlush func(string)
+}
+
+// newTokenBuffer creates a buffer that flushes content at the given interval.
+func newTokenBuffer(interval time.Duration, onFlush func(string)) *tokenBuffer {
+	tb := &tokenBuffer{
+		ticker:  time.NewTicker(interval),
+		done:    make(chan struct{}),
+		onFlush: onFlush,
+	}
+	go tb.run()
+	return tb
+}
+
+func (tb *tokenBuffer) run() {
+	for {
+		select {
+		case <-tb.ticker.C:
+			tb.flush()
+		case <-tb.done:
+			tb.flush() // Final flush
+			return
+		}
+	}
+}
+
+func (tb *tokenBuffer) Write(content string) {
+	tb.mu.Lock()
+	tb.content = content
+	tb.mu.Unlock()
+}
+
+func (tb *tokenBuffer) flush() {
+	tb.mu.Lock()
+	content := tb.content
+	tb.mu.Unlock()
+
+	if content != "" && tb.onFlush != nil {
+		tb.onFlush(content)
+	}
+}
+
+func (tb *tokenBuffer) Stop() {
+	tb.ticker.Stop()
+	close(tb.done)
 }
 
 // ChatView displays the chat messages and handles interaction.
@@ -115,9 +173,18 @@ func (cv *ChatView) setupUI() {
 	cv.welcomeView.SetMarginStart(32)
 	cv.welcomeView.SetMarginEnd(32)
 
-	// Logo with fixed pixel size using GtkImage
-	logoPath := "/home/storo/projects/guanaco/assets/icons/guanaco-logo.svg"
-	logoImage := gtk.NewImageFromFile(logoPath)
+	// Logo from embedded SVG
+	var logoImage *gtk.Image
+	if len(assets.LogoSVG) > 0 {
+		bytes := glib.NewBytesWithGo(assets.LogoSVG)
+		if texture, err := gdk.NewTextureFromBytes(bytes); err == nil {
+			logoImage = gtk.NewImageFromPaintable(texture)
+		}
+	}
+	if logoImage == nil {
+		// Fallback to a symbolic icon if logo not found
+		logoImage = gtk.NewImageFromIconName("face-smile-big-symbolic")
+	}
 	logoImage.SetPixelSize(160)
 	logoImage.SetHAlign(gtk.AlignCenter)
 	logoImage.AddCSSClass("welcome-logo")
@@ -159,10 +226,10 @@ func (cv *ChatView) setupUI() {
 		return btn
 	}
 
-	pillsBox.Append(createPill("💡", "Explícame"))
-	pillsBox.Append(createPill("💻", "Escribe"))
-	pillsBox.Append(createPill("📝", "Resume"))
-	pillsBox.Append(createPill("🌐", "Traduce"))
+	pillsBox.Append(createPill("💡", i18n.T("Explain")))
+	pillsBox.Append(createPill("💻", i18n.T("Write")))
+	pillsBox.Append(createPill("📝", i18n.T("Summarize")))
+	pillsBox.Append(createPill("🌐", i18n.T("Translate")))
 
 	cv.welcomeView.Append(pillsBox)
 
@@ -177,7 +244,7 @@ func (cv *ChatView) setupUI() {
 	spinner.Start()
 	cv.loadingView.Append(spinner)
 
-	loadingLabel := gtk.NewLabel("Cargando...")
+	loadingLabel := gtk.NewLabel(i18n.T("Loading..."))
 	loadingLabel.AddCSSClass("dim-label")
 	cv.loadingView.Append(loadingLabel)
 
@@ -238,16 +305,16 @@ func (cv *ChatView) onAttachFile() {
 
 	// Create file chooser dialog
 	dialog := gtk.NewFileChooserNative(
-		"Select Document",
+		i18n.T("Select Document"),
 		parentWindow,
 		gtk.FileChooserActionOpen,
-		"Open",
-		"Cancel",
+		i18n.T("Open"),
+		i18n.T("Cancel"),
 	)
 
 	// Add file filters
 	allFilter := gtk.NewFileFilter()
-	allFilter.SetName("All Supported Files")
+	allFilter.SetName(i18n.T("All Supported Files"))
 	allFilter.AddPattern("*.txt")
 	allFilter.AddPattern("*.md")
 	allFilter.AddPattern("*.pdf")
@@ -259,7 +326,7 @@ func (cv *ChatView) onAttachFile() {
 	dialog.AddFilter(allFilter)
 
 	imageFilter := gtk.NewFileFilter()
-	imageFilter.SetName("Images")
+	imageFilter.SetName(i18n.T("Images"))
 	imageFilter.AddPattern("*.jpg")
 	imageFilter.AddPattern("*.jpeg")
 	imageFilter.AddPattern("*.png")
@@ -268,13 +335,13 @@ func (cv *ChatView) onAttachFile() {
 	dialog.AddFilter(imageFilter)
 
 	textFilter := gtk.NewFileFilter()
-	textFilter.SetName("Text Files")
+	textFilter.SetName(i18n.T("Text Files"))
 	textFilter.AddPattern("*.txt")
 	textFilter.AddPattern("*.md")
 	dialog.AddFilter(textFilter)
 
 	pdfFilter := gtk.NewFileFilter()
-	pdfFilter.SetName("PDF Documents")
+	pdfFilter.SetName(i18n.T("PDF Documents"))
 	pdfFilter.AddPattern("*.pdf")
 	dialog.AddFilter(pdfFilter)
 
@@ -294,23 +361,42 @@ func (cv *ChatView) onAttachFile() {
 	dialog.Show()
 }
 
+const maxFileSizeMB = 50
+
 func (cv *ChatView) processAndAttachFile(path string) {
 	filename := filepath.Base(path)
 	logger.Info("Processing file attachment", "path", path)
 
-	// Check if file type is supported
-	if !cv.ragProcessor.CanProcess(filename) {
-		cv.handleError(fmt.Errorf("unsupported file type: %s", filename))
+	// Check file size (50MB limit)
+	info, err := os.Stat(path)
+	if err != nil {
+		cv.handleError(fmt.Errorf(i18n.T("failed to process %s: %v"), filename, err))
 		return
 	}
+	maxBytes := int64(maxFileSizeMB * 1024 * 1024)
+	if info.Size() > maxBytes {
+		cv.handleError(fmt.Errorf(i18n.T("file too large: %s (max %dMB)"), filename, maxFileSizeMB))
+		return
+	}
+
+	// Check if file type is supported
+	if !cv.ragProcessor.CanProcess(filename) {
+		cv.handleError(fmt.Errorf(i18n.T("unsupported file type: %s"), filename))
+		return
+	}
+
+	// Show loading indicator
+	cv.inputArea.ShowLoadingIndicator()
 
 	// Process in background
 	go func() {
 		result, err := cv.ragProcessor.Process(path)
 
 		glib.IdleAdd(func() {
+			cv.inputArea.HideLoadingIndicator()
+
 			if err != nil {
-				cv.handleError(fmt.Errorf("failed to process %s: %w", filename, err))
+				cv.handleError(fmt.Errorf(i18n.T("failed to process %s: %v"), filename, err))
 				return
 			}
 
@@ -334,7 +420,7 @@ func (cv *ChatView) onSendMessage(text string) {
 
 	// Validate model is selected
 	if cv.currentModel == "" {
-		cv.handleError(fmt.Errorf("please enter a model name (e.g., llama3.2)"))
+		cv.handleError(errors.New(i18n.T("please enter a model name (e.g., llama3.2)")))
 		return
 	}
 
@@ -443,7 +529,7 @@ func (cv *ChatView) ensureModelAndStream(data attachmentData) {
 	cv.inputArea.SetInputSensitive(false)
 
 	// Create a status bubble to show download progress
-	cv.currentBubble = cv.addMessage(store.RoleSystem, "Downloading model "+cv.currentModel+"...")
+	cv.currentBubble = cv.addMessage(store.RoleSystem, fmt.Sprintf(i18n.T("Downloading model %s..."), cv.currentModel))
 
 	go func() {
 		err := cv.ollamaClient.PullModel(ctx, cv.currentModel, func(status string, completed, total int64) {
@@ -456,14 +542,19 @@ func (cv *ChatView) ensureModelAndStream(data attachmentData) {
 			}
 
 			glib.IdleAdd(func() {
-				cv.currentBubble.SetContent(progressText)
-				cv.scrollToBottom()
+				if cv.currentBubble != nil {
+					cv.currentBubble.SetContent(progressText)
+					cv.scrollToBottom()
+				}
 			})
 		})
 
 		glib.IdleAdd(func() {
 			if err != nil {
-				cv.currentBubble.SetContent("Failed to download model: " + err.Error())
+				logger.Error("Failed to download model", "error", err)
+				if cv.currentBubble != nil {
+					cv.currentBubble.SetContent(i18n.T("Model download failed. Please check your connection."))
+				}
 				cv.isStreaming = false
 				cv.inputArea.SetInputSensitive(true)
 				cv.inputArea.Focus()
@@ -471,15 +562,17 @@ func (cv *ChatView) ensureModelAndStream(data attachmentData) {
 			}
 
 			// Remove the download status bubble
-			cv.messagesBox.Remove(cv.currentBubble)
-			// Remove from messages slice
-			for i, bubble := range cv.messages {
-				if bubble == cv.currentBubble {
-					cv.messages = append(cv.messages[:i], cv.messages[i+1:]...)
-					break
+			if cv.currentBubble != nil {
+				cv.messagesBox.Remove(cv.currentBubble)
+				// Remove from messages slice
+				for i, bubble := range cv.messages {
+					if bubble == cv.currentBubble {
+						cv.messages = append(cv.messages[:i], cv.messages[i+1:]...)
+						break
+					}
 				}
+				cv.currentBubble = nil
 			}
-			cv.currentBubble = nil
 			cv.isStreaming = false
 
 			// Now start the actual chat
@@ -526,15 +619,19 @@ func (cv *ChatView) addMessage(role store.Role, content string) *MessageBubble {
 	return bubble
 }
 
+const streamingTimeout = 5 * time.Minute
+
 func (cv *ChatView) startStreaming(data attachmentData) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create context with both timeout and cancellation
+	ctx, cancel := context.WithTimeout(context.Background(), streamingTimeout)
 	cv.streamCancel = cancel
 
 	cv.isStreaming = true
 	cv.inputArea.SetStreamingMode(true)
 
-	// Create placeholder for response
+	// Create placeholder for response with thinking animation
 	cv.currentBubble = cv.addMessage(store.RoleAssistant, "")
+	cv.currentBubble.SetThinking(true)
 
 	// Build message history
 	messages := cv.buildMessageHistory()
@@ -559,19 +656,30 @@ func (cv *ChatView) startStreaming(data attachmentData) {
 	go func() {
 		var response strings.Builder
 
+		// Buffer tokens and flush every 50ms to reduce UI updates
+		buffer := newTokenBuffer(50*time.Millisecond, func(content string) {
+			glib.IdleAdd(func() {
+				if cv.currentBubble != nil {
+					wasThinking := cv.currentBubble.IsThinking()
+					cv.currentBubble.SetContent(content)
+
+					// Only scroll if we just exited thinking mode or user is at bottom
+					if wasThinking || cv.userAtBottom {
+						cv.scrollToBottom()
+					}
+				}
+			})
+		})
+
 		err := cv.streamHandler.Chat(ctx, &ollama.ChatRequest{
 			Model:    cv.currentModel,
 			Messages: messages,
 		}, func(token string) {
 			response.WriteString(token)
-			content := response.String()
-
-			// Update UI on main thread
-			glib.IdleAdd(func() {
-				cv.currentBubble.SetContent(content)
-				cv.scrollToBottom()
-			})
+			buffer.Write(response.String())
 		})
+
+		buffer.Stop() // Final flush and cleanup
 
 		// Finalize on main thread
 		glib.IdleAdd(func() {
@@ -580,10 +688,18 @@ func (cv *ChatView) startStreaming(data attachmentData) {
 			cv.inputArea.SetStreamingMode(false)
 			cv.inputArea.Focus()
 
-			// Don't show error if user cancelled
-			if err != nil && err != context.Canceled {
-				cv.handleError(err)
-				return
+			// Handle errors
+			if err != nil {
+				switch err {
+				case context.Canceled:
+					// User cancelled, no error to show
+				case context.DeadlineExceeded:
+					cv.handleError(errors.New(i18n.T("Response timed out. The model took too long to respond.")))
+					return
+				default:
+					cv.handleError(err)
+					return
+				}
 			}
 
 			// Save assistant response to database (even if cancelled, save partial)
@@ -635,16 +751,26 @@ func (cv *ChatView) buildMessageHistory() []ollama.Message {
 		dbMessages, err := cv.db.GetMessages(cv.currentChat.ID)
 		if err == nil {
 			logger.Info("Building message history from DB", "chatID", cv.currentChat.ID, "messageCount", len(dbMessages))
+
+			// Collect user message IDs for batch attachment loading
+			var userMsgIDs []int64
+			for _, msg := range dbMessages {
+				if msg.Role == store.RoleUser {
+					userMsgIDs = append(userMsgIDs, msg.ID)
+				}
+			}
+
+			// Load all attachments in a single query (avoids N+1)
+			attachmentMap, _ := cv.db.GetAttachmentsForMessages(userMsgIDs)
+
 			for _, msg := range dbMessages {
 				content := msg.Content
 
 				// For user messages, check if there are attachments
 				if msg.Role == store.RoleUser {
-					attachments, _ := cv.db.GetMessageAttachments(msg.ID)
-					logger.Info("Checking attachments for message", "messageID", msg.ID, "attachmentCount", len(attachments))
-					if len(attachments) > 0 {
+					if attachments, ok := attachmentMap[msg.ID]; ok && len(attachments) > 0 {
 						content = cv.rebuildContentWithAttachments(msg.Content, attachments)
-						logger.Info("Rebuilt content with attachments", "originalLen", len(msg.Content), "newLen", len(content))
+						logger.Info("Rebuilt content with attachments", "messageID", msg.ID, "attachmentCount", len(attachments))
 					}
 				}
 

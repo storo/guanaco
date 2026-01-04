@@ -62,8 +62,12 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>Main chat interface</caption>
-      <image>https://raw.githubusercontent.com/storo/guanaco/main/screenshots/main.png</image>
+      <caption>Chat conversation with AI model</caption>
+      <image>https://raw.githubusercontent.com/storo/guanaco/v0.1.0/screenshots/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Welcome screen</caption>
+      <image>https://raw.githubusercontent.com/storo/guanaco/v0.1.0/screenshots/welcome.png</image>
     </screenshot>
   </screenshots>
 

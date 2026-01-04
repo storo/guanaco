@@ -73,12 +73,12 @@ func TestMarkdownToPango(t *testing.T) {
 		{
 			name:     "unordered list",
 			markdown: "- item 1\n- item 2",
-			expected: "• item 1\n• item 2",
+			expected: "• item 1\n  • item 2",
 		},
 		{
 			name:     "ordered list",
 			markdown: "1. first\n2. second",
-			expected: "1. first\n2. second",
+			expected: "1. first\n  2. second",
 		},
 		{
 			name:     "blockquote",
@@ -88,12 +88,12 @@ func TestMarkdownToPango(t *testing.T) {
 		{
 			name:     "horizontal rule",
 			markdown: "---",
-			expected: "───────────────────────────────────────",
+			expected: "────────",
 		},
 		{
 			name:     "complex markdown",
 			markdown: "# Hello\n\nThis is **bold** and *italic* with `code`.\n\n- Item 1\n- Item 2",
-			expected: "<span size=\"x-large\" weight=\"bold\">Hello</span>This is <b>bold</b> and <i>italic</i> with <tt>code</tt>.\n\n• Item 1\n• Item 2",
+			expected: "<span size=\"x-large\" weight=\"bold\">Hello</span>\n\nThis is <b>bold</b> and <i>italic</i> with <tt>code</tt>.\n\n  • Item 1\n  • Item 2",
 		},
 		{
 			name:     "escape ampersand",

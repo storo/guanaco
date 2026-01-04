@@ -5,6 +5,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/storo/guanaco/internal/config"
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 // Language represents a selectable language option.
@@ -47,7 +48,7 @@ func NewSettingsDialog(parent *gtk.Window, cfg *config.AppConfig, models []strin
 	}
 
 	d.Window = adw.NewWindow()
-	d.SetTitle("Settings")
+	d.SetTitle(i18n.T("Settings"))
 	d.SetModal(true)
 	d.SetDefaultSize(450, 500)
 	if parent != nil {
@@ -64,7 +65,7 @@ func (d *SettingsDialog) setupUI() {
 	headerBar := adw.NewHeaderBar()
 	headerBar.SetShowEndTitleButtons(true)
 	headerBar.SetShowStartTitleButtons(true)
-	headerBar.SetTitleWidget(gtk.NewLabel("Settings"))
+	headerBar.SetTitleWidget(gtk.NewLabel(i18n.T("Settings")))
 
 	// Main content
 	content := gtk.NewBox(gtk.OrientationVertical, 16)
@@ -74,7 +75,7 @@ func (d *SettingsDialog) setupUI() {
 	content.SetMarginEnd(24)
 
 	// === Default Model ===
-	modelLabel := gtk.NewLabel("Default Model:")
+	modelLabel := gtk.NewLabel(i18n.T("Default Model:"))
 	modelLabel.SetXAlign(0)
 	modelLabel.AddCSSClass("heading")
 	content.Append(modelLabel)
@@ -83,7 +84,7 @@ func (d *SettingsDialog) setupUI() {
 	content.Append(d.modelDropdown)
 
 	// === Response Language ===
-	langLabel := gtk.NewLabel("Response Language:")
+	langLabel := gtk.NewLabel(i18n.T("Response Language:"))
 	langLabel.SetXAlign(0)
 	langLabel.SetMarginTop(8)
 	langLabel.AddCSSClass("heading")
@@ -93,13 +94,13 @@ func (d *SettingsDialog) setupUI() {
 	content.Append(d.languageDropdown)
 
 	// === Global System Prompt ===
-	promptLabel := gtk.NewLabel("Global System Prompt:")
+	promptLabel := gtk.NewLabel(i18n.T("Global System Prompt:"))
 	promptLabel.SetXAlign(0)
 	promptLabel.SetMarginTop(8)
 	promptLabel.AddCSSClass("heading")
 	content.Append(promptLabel)
 
-	promptHint := gtk.NewLabel("Applied to all new chats (chat-specific prompts take priority)")
+	promptHint := gtk.NewLabel(i18n.T("Applied to all new chats (chat-specific prompts take priority)"))
 	promptHint.SetXAlign(0)
 	promptHint.AddCSSClass("dim-label")
 	promptHint.AddCSSClass("caption")
@@ -123,14 +124,14 @@ func (d *SettingsDialog) setupUI() {
 	buttonBox.SetMarginTop(16)
 
 	cancelBtn := gtk.NewButton()
-	cancelBtn.SetLabel("Cancel")
+	cancelBtn.SetLabel(i18n.T("Cancel"))
 	cancelBtn.ConnectClicked(func() {
 		d.Close()
 	})
 	buttonBox.Append(cancelBtn)
 
 	saveBtn := gtk.NewButton()
-	saveBtn.SetLabel("Save")
+	saveBtn.SetLabel(i18n.T("Save"))
 	saveBtn.AddCSSClass("suggested-action")
 	saveBtn.ConnectClicked(d.onSaveClicked)
 	buttonBox.Append(saveBtn)
@@ -150,7 +151,7 @@ func (d *SettingsDialog) createModelDropdown() *gtk.DropDown {
 	modelList := gtk.NewStringList(nil)
 
 	// Add "None" option first
-	modelList.Append("(None - use first available)")
+	modelList.Append(i18n.T("(None - use first available)"))
 
 	selectedIdx := uint(0)
 	for i, model := range d.models {

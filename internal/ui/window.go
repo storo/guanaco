@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/storo/guanaco/internal/config"
+	"github.com/storo/guanaco/internal/i18n"
 	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 	"github.com/storo/guanaco/internal/store"
@@ -57,8 +59,29 @@ func NewMainWindow(app *adw.Application) *MainWindow {
 	win.initDatabase()
 	win.setupUI()
 	win.checkOllamaHealth()
+	win.setupCleanup()
 
 	return win
+}
+
+// setupCleanup registers cleanup handlers for window close.
+func (w *MainWindow) setupCleanup() {
+	w.ConnectCloseRequest(func() bool {
+		w.cleanup()
+		return false // Allow window to close
+	})
+}
+
+// cleanup releases all resources before window closes.
+func (w *MainWindow) cleanup() {
+	logger.Info("Cleaning up resources")
+	if w.db != nil {
+		if err := w.db.Close(); err != nil {
+			logger.Error("Failed to close database", "error", err)
+		} else {
+			logger.Info("Database closed")
+		}
+	}
 }
 
 func (w *MainWindow) loadConfig() {
@@ -98,6 +121,7 @@ func (w *MainWindow) setupUI() {
 
 	// Sidebar with chat list
 	w.sidebar = NewSidebar(w.db)
+	w.sidebar.SetWindow(&w.ApplicationWindow.Window)
 	w.sidebar.OnChatSelected(w.onChatSelected)
 	w.sidebar.OnNewChat(w.onNewChat)
 	w.sidebar.OnChatDeleted(w.onChatDeleted)
@@ -113,7 +137,8 @@ func (w *MainWindow) setupUI() {
 	w.chatView = NewChatView(w.ollamaClient, w.db)
 	w.chatView.SetAppConfig(w.appConfig)
 	w.chatView.OnError(func(err error) {
-		w.showToast("Error: " + err.Error())
+		logger.Error("Chat error", "error", err)
+		w.showToast(err.Error())
 	})
 	w.chatView.OnTitleChanged(func(title string) {
 		w.sidebar.Refresh()
@@ -133,8 +158,8 @@ func (w *MainWindow) setupUI() {
 	// Create status page for when Ollama is not running
 	w.statusPage = adw.NewStatusPage()
 	w.statusPage.SetIconName("dialog-warning-symbolic")
-	w.statusPage.SetTitle("Ollama Not Detected")
-	w.statusPage.SetDescription("Guanaco requires Ollama to be running.\nClick the button below to start Ollama.")
+	w.statusPage.SetTitle(i18n.T("Ollama Not Detected"))
+	w.statusPage.SetDescription(i18n.T("Guanaco requires Ollama to be running.\nClick the button below to start Ollama."))
 
 	// Button box for status page actions
 	buttonBox := gtk.NewBox(gtk.OrientationHorizontal, 12)
@@ -142,7 +167,7 @@ func (w *MainWindow) setupUI() {
 
 	// Start Ollama button
 	startButton := gtk.NewButton()
-	startButton.SetLabel("Start Ollama")
+	startButton.SetLabel(i18n.T("Start Ollama"))
 	startButton.AddCSSClass("suggested-action")
 	startButton.AddCSSClass("pill")
 	startButton.ConnectClicked(w.onStartOllama)
@@ -150,7 +175,7 @@ func (w *MainWindow) setupUI() {
 
 	// Retry button
 	retryButton := gtk.NewButton()
-	retryButton.SetLabel("Retry Connection")
+	retryButton.SetLabel(i18n.T("Retry Connection"))
 	retryButton.AddCSSClass("pill")
 	retryButton.ConnectClicked(func() {
 		w.checkOllamaHealth()
@@ -196,7 +221,7 @@ func (w *MainWindow) loadModels() {
 	models, err := w.ollamaClient.ListModels(ctx)
 	if err != nil {
 		logger.Error("Failed to load models", "error", err)
-		w.showToast("Failed to load models: " + err.Error())
+		w.showToast(i18n.T("Failed to load the list of models. Please try again."))
 		return
 	}
 
@@ -224,14 +249,14 @@ func (w *MainWindow) loadModels() {
 		logger.Info("Models loaded", "count", len(models), "defaultModel", defaultModel)
 	} else {
 		logger.Warn("No models found")
-		w.showToast("No models found. Use the download button to pull a model.")
+		w.showToast(i18n.T("No models found. Use the download button to pull a model."))
 	}
 }
 
 func (w *MainWindow) onNewChat() {
 	w.chatView.NewChat()
 
-	// Usar modelo por defecto de config, o el actual si no hay default
+	// Use default model from config, or current model if none set
 	model := ""
 	if w.appConfig != nil && w.appConfig.DefaultModel != "" {
 		model = w.appConfig.DefaultModel
@@ -266,7 +291,7 @@ func (w *MainWindow) onDownloadModel() {
 		w.loadModels()
 		w.chatView.GetInputArea().SetModel(model)
 		w.chatView.SetModel(model)
-		w.showToast("Model " + model + " downloaded!")
+		w.showToast(fmt.Sprintf(i18n.T("Model %s downloaded!"), model))
 	})
 	dialog.Present()
 }
@@ -290,7 +315,7 @@ func (w *MainWindow) onChatSettings() {
 			if w.db != nil {
 				w.db.UpdateChatSystemPrompt(chat.ID, prompt)
 			}
-			w.showToast("System prompt saved")
+			w.showToast(i18n.T("System prompt saved"))
 		}
 	})
 	dialog.Present()
@@ -304,7 +329,7 @@ func (w *MainWindow) showToast(message string) {
 
 func (w *MainWindow) onStartOllama() {
 	logger.Info("Attempting to start Ollama")
-	w.showToast("Starting Ollama...")
+	w.showToast(i18n.T("Starting Ollama..."))
 
 	// Start ollama serve in background
 	go func() {
@@ -314,7 +339,7 @@ func (w *MainWindow) onStartOllama() {
 		if err != nil {
 			logger.Error("Failed to start Ollama", "error", err)
 			glib.IdleAdd(func() {
-				w.showToast("Failed to start Ollama: " + err.Error())
+				w.showToast(i18n.T("Could not start Ollama. Please start it manually."))
 			})
 			return
 		}
@@ -327,7 +352,7 @@ func (w *MainWindow) onStartOllama() {
 			w.checkOllamaHealth()
 			if w.ollamaHealthy {
 				logger.Info("Ollama started successfully")
-				w.showToast("Ollama started successfully!")
+				w.showToast(i18n.T("Ollama started successfully!"))
 				w.toastOverlay.SetChild(w.splitView)
 			}
 		})
@@ -352,13 +377,13 @@ func (w *MainWindow) onSettings() {
 		w.appConfig = cfg
 		w.chatView.SetAppConfig(cfg)
 
-		// Aplicar modelo por defecto inmediatamente si está configurado
+		// Apply default model immediately if configured
 		if cfg.DefaultModel != "" {
 			w.chatView.GetInputArea().SetModel(cfg.DefaultModel)
 			w.chatView.SetModel(cfg.DefaultModel)
 		}
 
-		w.showToast("Settings saved")
+		w.showToast(i18n.T("Settings saved"))
 		logger.Info("Settings saved", "defaultModel", cfg.DefaultModel, "language", cfg.ResponseLanguage)
 	})
 	dialog.Present()

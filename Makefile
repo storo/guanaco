@@ -8,7 +8,7 @@ BINARY = guanaco
 LDFLAGS = -s -w -X main.version=$(VERSION)
 GOFLAGS = -trimpath
 
-.PHONY: all build clean test lint install uninstall flatpak
+.PHONY: all build clean test lint install uninstall flatpak deb
 
 all: build
 
@@ -74,6 +74,32 @@ run: build
 dev:
 	find . -name '*.go' | entr -r go run ./cmd/guanaco
 
+# Build .deb package
+deb: build
+	rm -rf dist/deb
+	mkdir -p dist/deb/DEBIAN
+	mkdir -p dist/deb/usr/bin
+	mkdir -p dist/deb/usr/share/icons/hicolor/scalable/apps
+	mkdir -p dist/deb/usr/share/applications
+	mkdir -p dist/deb/usr/share/metainfo
+	mkdir -p dist/deb/usr/share/doc/guanaco
+	cp $(BINARY) dist/deb/usr/bin/
+	cp assets/icons/$(APP_ID).svg dist/deb/usr/share/icons/hicolor/scalable/apps/
+	cp assets/$(APP_ID).desktop dist/deb/usr/share/applications/
+	cp assets/$(APP_ID).metainfo.xml dist/deb/usr/share/metainfo/
+	cp LICENSE dist/deb/usr/share/doc/guanaco/copyright
+	echo "Package: guanaco" > dist/deb/DEBIAN/control
+	echo "Version: $(VERSION)" >> dist/deb/DEBIAN/control
+	echo "Section: utils" >> dist/deb/DEBIAN/control
+	echo "Priority: optional" >> dist/deb/DEBIAN/control
+	echo "Architecture: amd64" >> dist/deb/DEBIAN/control
+	echo "Depends: libgtk-4-1, libadwaita-1-0" >> dist/deb/DEBIAN/control
+	echo "Maintainer: storo <storo@voidlab.cl>" >> dist/deb/DEBIAN/control
+	echo "Description: Chat with local AI models using Ollama" >> dist/deb/DEBIAN/control
+	echo " Guanaco is a modern GTK4/Libadwaita desktop application for chatting" >> dist/deb/DEBIAN/control
+	echo " with local AI models powered by Ollama." >> dist/deb/DEBIAN/control
+	dpkg-deb --build dist/deb dist/guanaco_$(VERSION)_amd64.deb
+
 # Show help
 help:
 	@echo "Guanaco Makefile"
@@ -89,5 +115,6 @@ help:
 	@echo "  make install      - Install locally"
 	@echo "  make uninstall    - Uninstall"
 	@echo "  make flatpak      - Build Flatpak"
+	@echo "  make deb          - Build .deb package"
 	@echo "  make run          - Run the application"
 	@echo "  make dev          - Run with hot reload"

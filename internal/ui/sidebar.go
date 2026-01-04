@@ -3,8 +3,10 @@ package ui
 import (
 	"strings"
 
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/i18n"
 	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/store"
 )
@@ -15,11 +17,13 @@ type Sidebar struct {
 
 	listBox       *gtk.ListBox
 	scrolled      *gtk.ScrolledWindow
+	emptyState    *gtk.Box
 	newChatButton *gtk.Button
 	chats         []*store.Chat
 
 	// Dependencies
-	db *store.DB
+	db     *store.DB
+	window *gtk.Window
 
 	// Callbacks
 	onChatSelected func(*store.Chat)
@@ -49,7 +53,7 @@ func (sb *Sidebar) setupUI() {
 	header.SetMarginStart(12)
 	header.SetMarginEnd(12)
 
-	title := gtk.NewLabel("Chats")
+	title := gtk.NewLabel(i18n.T("Chats"))
 	title.AddCSSClass("title-3")
 	title.SetHExpand(true)
 	title.SetXAlign(0)
@@ -58,7 +62,7 @@ func (sb *Sidebar) setupUI() {
 	// New Chat button
 	sb.newChatButton = gtk.NewButton()
 	sb.newChatButton.SetIconName("list-add-symbolic")
-	sb.newChatButton.SetTooltipText("New Chat")
+	sb.newChatButton.SetTooltipText(i18n.T("New Chat"))
 	sb.newChatButton.AddCSSClass("flat")
 	header.Append(sb.newChatButton)
 
@@ -91,6 +95,30 @@ func (sb *Sidebar) setupUI() {
 	sb.scrolled.SetVExpand(true)
 	sb.Append(sb.scrolled)
 
+	// Empty state (hidden by default)
+	sb.emptyState = gtk.NewBox(gtk.OrientationVertical, 8)
+	sb.emptyState.SetVExpand(true)
+	sb.emptyState.SetVAlign(gtk.AlignCenter)
+	sb.emptyState.SetMarginStart(16)
+	sb.emptyState.SetMarginEnd(16)
+
+	emptyIcon := gtk.NewImageFromIconName("chat-message-new-symbolic")
+	emptyIcon.SetIconSize(gtk.IconSizeLarge)
+	emptyIcon.AddCSSClass("dim-label")
+	sb.emptyState.Append(emptyIcon)
+
+	emptyTitle := gtk.NewLabel(i18n.T("No conversations yet"))
+	emptyTitle.AddCSSClass("dim-label")
+	sb.emptyState.Append(emptyTitle)
+
+	emptyDesc := gtk.NewLabel(i18n.T("Start a new chat to begin"))
+	emptyDesc.AddCSSClass("dim-label")
+	emptyDesc.AddCSSClass("caption")
+	sb.emptyState.Append(emptyDesc)
+
+	sb.emptyState.SetVisible(false)
+	sb.Append(sb.emptyState)
+
 	// === FOOTER ===
 	footerSeparator := gtk.NewSeparator(gtk.OrientationHorizontal)
 	sb.Append(footerSeparator)
@@ -103,7 +131,7 @@ func (sb *Sidebar) setupUI() {
 
 	// Settings button
 	settingsBtn := gtk.NewButton()
-	settingsBtn.SetChild(sb.createFooterButtonContent("preferences-system-symbolic", "Settings"))
+	settingsBtn.SetChild(sb.createFooterButtonContent("preferences-system-symbolic", i18n.T("Settings")))
 	settingsBtn.AddCSSClass("flat")
 	settingsBtn.ConnectClicked(func() {
 		if sb.onSettings != nil {
@@ -156,6 +184,11 @@ func (sb *Sidebar) setChats(chats []*store.Chat) {
 
 	sb.chats = chats
 
+	// Show/hide empty state
+	hasChats := len(chats) > 0
+	sb.scrolled.SetVisible(hasChats)
+	sb.emptyState.SetVisible(!hasChats)
+
 	// Add chat rows
 	for _, chat := range chats {
 		row := sb.createChatRow(chat)
@@ -188,7 +221,7 @@ func (sb *Sidebar) createChatRow(chat *store.Chat) *gtk.ListBoxRow {
 	deleteBtn.SetIconName("user-trash-symbolic")
 	deleteBtn.AddCSSClass("flat")
 	deleteBtn.AddCSSClass("circular")
-	deleteBtn.SetTooltipText("Delete chat")
+	deleteBtn.SetTooltipText(i18n.T("Delete chat"))
 	deleteBtn.SetVAlign(gtk.AlignCenter)
 
 	chatID := chat.ID // capture for closure
@@ -285,12 +318,31 @@ func (sb *Sidebar) OnChatDeleted(callback func(int64)) {
 	sb.onChatDeleted = callback
 }
 
-// deleteChat deletes a chat from the database and refreshes the list.
+// deleteChat shows a confirmation dialog and deletes a chat if confirmed.
 func (sb *Sidebar) deleteChat(chatID int64) {
 	if sb.db == nil {
 		return
 	}
 
+	// Create confirmation dialog
+	dialog := adw.NewMessageDialog(sb.window, i18n.T("Delete Chat?"), i18n.T("This conversation will be permanently deleted. This action cannot be undone."))
+	dialog.AddResponse("cancel", i18n.T("Cancel"))
+	dialog.AddResponse("delete", i18n.T("Delete"))
+	dialog.SetResponseAppearance("delete", adw.ResponseDestructive)
+	dialog.SetDefaultResponse("cancel")
+	dialog.SetCloseResponse("cancel")
+
+	dialog.ConnectResponse(func(response string) {
+		if response == "delete" {
+			sb.confirmDeleteChat(chatID)
+		}
+	})
+
+	dialog.Present()
+}
+
+// confirmDeleteChat actually deletes the chat after confirmation.
+func (sb *Sidebar) confirmDeleteChat(chatID int64) {
 	if err := sb.db.DeleteChat(chatID); err != nil {
 		logger.Error("Failed to delete chat", "chatID", chatID, "error", err)
 		return
@@ -310,4 +362,9 @@ func (sb *Sidebar) deleteChat(chatID int64) {
 // OnSettings sets the callback for when the settings button is clicked.
 func (sb *Sidebar) OnSettings(callback func()) {
 	sb.onSettings = callback
+}
+
+// SetWindow sets the parent window reference for dialogs.
+func (sb *Sidebar) SetWindow(window *gtk.Window) {
+	sb.window = window
 }

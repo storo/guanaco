@@ -6,6 +6,8 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/storo/guanaco/internal/i18n"
 )
 
 const styleCSS = `
@@ -114,6 +116,17 @@ const styleCSS = `
 .suggestion-pill:hover {
   background-color: alpha(@card_bg_color, 0.8);
 }
+
+/* Thinking Indicator Animation */
+.thinking-indicator {
+  padding: 8px 0;
+}
+
+.thinking-dot {
+  font-size: 18px;
+  color: @accent_color;
+  transition: opacity 150ms ease;
+}
 `
 
 const (
@@ -129,6 +142,9 @@ type Application struct {
 
 // NewApplication creates a new Guanaco application.
 func NewApplication() *Application {
+	// Initialize i18n (detects system language)
+	i18n.Init("")
+
 	app := &Application{}
 
 	app.Application = adw.NewApplication(AppID, gio.ApplicationFlagsNone)

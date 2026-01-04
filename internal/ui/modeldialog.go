@@ -8,6 +8,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/storo/guanaco/internal/i18n"
 	"github.com/storo/guanaco/internal/logger"
 	"github.com/storo/guanaco/internal/ollama"
 )
@@ -41,7 +42,7 @@ func NewModelDialog(parent *gtk.Window, client *ollama.Client) *ModelDialog {
 	}
 
 	d.Window = adw.NewWindow()
-	d.SetTitle("Download Model")
+	d.SetTitle(i18n.T("Download Model"))
 	d.SetModal(true)
 	d.SetDefaultSize(450, 500)
 	if parent != nil {
@@ -58,7 +59,7 @@ func (d *ModelDialog) setupUI() {
 	headerBar := adw.NewHeaderBar()
 	headerBar.SetShowEndTitleButtons(true)
 	headerBar.SetShowStartTitleButtons(true)
-	headerBar.SetTitleWidget(gtk.NewLabel("Download Model"))
+	headerBar.SetTitleWidget(gtk.NewLabel(i18n.T("Download Model")))
 
 	// Main content box
 	content := gtk.NewBox(gtk.OrientationVertical, 12)
@@ -68,7 +69,7 @@ func (d *ModelDialog) setupUI() {
 	content.SetMarginEnd(24)
 
 	// Available models label
-	availableLabel := gtk.NewLabel("Available Models:")
+	availableLabel := gtk.NewLabel(i18n.T("Available Models:"))
 	availableLabel.SetXAlign(0)
 	content.Append(availableLabel)
 
@@ -95,7 +96,7 @@ func (d *ModelDialog) setupUI() {
 	go d.loadAvailableModels()
 
 	// Custom model label
-	customLabel := gtk.NewLabel("Or enter custom model:")
+	customLabel := gtk.NewLabel(i18n.T("Or enter custom model:"))
 	customLabel.SetXAlign(0)
 	customLabel.SetMarginTop(8)
 	customLabel.AddCSSClass("dim-label")
@@ -103,7 +104,7 @@ func (d *ModelDialog) setupUI() {
 
 	// Model name entry
 	d.entry = gtk.NewEntry()
-	d.entry.SetPlaceholderText("Model name...")
+	d.entry.SetPlaceholderText(i18n.T("Model name..."))
 	d.entry.ConnectActivate(func() {
 		if !d.isDownloading {
 			d.startDownload()
@@ -131,7 +132,7 @@ func (d *ModelDialog) setupUI() {
 
 	// Cancel button
 	d.cancelBtn = gtk.NewButton()
-	d.cancelBtn.SetLabel("Cancel")
+	d.cancelBtn.SetLabel(i18n.T("Cancel"))
 	d.cancelBtn.ConnectClicked(func() {
 		if d.isDownloading && d.cancelFunc != nil {
 			d.cancelFunc()
@@ -143,7 +144,7 @@ func (d *ModelDialog) setupUI() {
 
 	// Download button
 	d.downloadBtn = gtk.NewButton()
-	d.downloadBtn.SetLabel("Download")
+	d.downloadBtn.SetLabel(i18n.T("Download"))
 	d.downloadBtn.AddCSSClass("suggested-action")
 	d.downloadBtn.ConnectClicked(d.startDownload)
 	buttonBox.Append(d.downloadBtn)
@@ -170,11 +171,11 @@ func (d *ModelDialog) startDownload() {
 	d.isDownloading = true
 	d.entry.SetSensitive(false)
 	d.downloadBtn.SetSensitive(false)
-	d.downloadBtn.SetLabel("Downloading...")
+	d.downloadBtn.SetLabel(i18n.T("Downloading..."))
 	d.progressBar.SetVisible(true)
 	d.progressBar.SetFraction(0)
 	d.statusLabel.SetVisible(true)
-	d.statusLabel.SetText("Starting download...")
+	d.statusLabel.SetText(i18n.T("Starting download..."))
 
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,7 +199,7 @@ func (d *ModelDialog) startDownload() {
 
 			if err != nil {
 				if err == context.Canceled {
-					d.statusLabel.SetText("Download cancelled")
+					d.statusLabel.SetText(i18n.T("Download cancelled"))
 				} else {
 					d.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
 					d.statusLabel.AddCSSClass("error")
@@ -209,7 +210,7 @@ func (d *ModelDialog) startDownload() {
 
 			// Success
 			logger.Info("Model downloaded successfully", "model", modelName)
-			d.statusLabel.SetText("Download complete!")
+			d.statusLabel.SetText(i18n.T("Download complete!"))
 			d.progressBar.SetFraction(1.0)
 			d.progressBar.SetText("100%")
 
@@ -229,7 +230,7 @@ func (d *ModelDialog) startDownload() {
 func (d *ModelDialog) resetUI() {
 	d.entry.SetSensitive(true)
 	d.downloadBtn.SetSensitive(true)
-	d.downloadBtn.SetLabel("Download")
+	d.downloadBtn.SetLabel(i18n.T("Download"))
 }
 
 // OnModelDownloaded sets the callback for when a model is successfully downloaded.

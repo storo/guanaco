@@ -1,11 +1,18 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/storo/guanaco/internal/store"
 )
+
+// containsCodeBlock checks if the content contains a markdown code block.
+func containsCodeBlock(content string) bool {
+	return strings.Contains(content, "```")
+}
 
 // Shared markdown renderer for all message bubbles
 var mdRenderer = NewMarkdownRenderer()
@@ -14,10 +21,13 @@ var mdRenderer = NewMarkdownRenderer()
 type MessageBubble struct {
 	*gtk.Box
 
-	contentBox *gtk.Box
-	container  *gtk.Box
-	role       store.Role
-	content    string
+	contentBox        *gtk.Box
+	container         *gtk.Box
+	role              store.Role
+	content           string
+	textLabel         *gtk.Label          // Cached label for incremental updates
+	thinkingIndicator *ThinkingIndicator  // Animated indicator
+	isThinking        bool                // Whether we're showing the thinking animation
 }
 
 // NewMessageBubble creates a new message bubble.
@@ -100,6 +110,8 @@ func (mb *MessageBubble) setupUI() {
 // renderContent parses the content and creates appropriate widgets.
 func (mb *MessageBubble) renderContent() {
 	// Clear existing content
+	// Note: SetContent() calls SetThinking(false) first, so the indicator
+	// is already removed before we get here during streaming
 	for {
 		child := mb.contentBox.FirstChild()
 		if child == nil {
@@ -108,17 +120,29 @@ func (mb *MessageBubble) renderContent() {
 		mb.contentBox.Remove(child)
 	}
 
+	// Reset cached label
+	mb.textLabel = nil
+
 	// Parse content into parts
 	parts := mdRenderer.Parse(mb.content)
 
 	// If no parts, just add as text
 	if len(parts) == 0 {
 		label := mb.createTextLabel(mb.content)
-		mb.contentBox.Append(label)
+		mb.textLabel = label // Cache for incremental updates
+		mb.contentBox.Prepend(label)
 		return
 	}
 
-	// Add each part
+	// Check if it's just a single text part (can use incremental updates)
+	if len(parts) == 1 && parts[0].Type == "text" {
+		label := mb.createTextLabel(parts[0].Content)
+		mb.textLabel = label // Cache for incremental updates
+		mb.contentBox.Prepend(label)
+		return
+	}
+
+	// Multiple parts or has code blocks - full render
 	for _, part := range parts {
 		switch part.Type {
 		case "code":
@@ -153,7 +177,22 @@ func (mb *MessageBubble) createTextLabel(text string) *gtk.Label {
 
 // SetContent updates the message content.
 func (mb *MessageBubble) SetContent(content string) {
+	// Hide thinking indicator if it was showing
+	if mb.isThinking {
+		mb.SetThinking(false)
+	}
+
+	oldContent := mb.content
 	mb.content = content
+
+	// Optimization: if content doesn't have code blocks and we have a cached label,
+	// just update the markup without recreating widgets
+	if mb.textLabel != nil && !containsCodeBlock(content) && !containsCodeBlock(oldContent) {
+		mb.textLabel.SetMarkup(mdRenderer.ToPango(content))
+		return
+	}
+
+	// Full re-render needed (structure changed or first render)
 	mb.renderContent()
 }
 
@@ -171,4 +210,30 @@ func (mb *MessageBubble) GetContent() string {
 // GetRole returns the message role.
 func (mb *MessageBubble) GetRole() store.Role {
 	return mb.role
+}
+
+// SetThinking shows or hides the animated thinking indicator.
+func (mb *MessageBubble) SetThinking(thinking bool) {
+	if mb.isThinking == thinking {
+		return
+	}
+	mb.isThinking = thinking
+
+	if thinking {
+		// Create and show the thinking indicator
+		mb.thinkingIndicator = NewThinkingIndicator()
+		mb.contentBox.Append(mb.thinkingIndicator)
+	} else {
+		// Remove the thinking indicator
+		if mb.thinkingIndicator != nil {
+			mb.thinkingIndicator.Stop()
+			mb.contentBox.Remove(mb.thinkingIndicator)
+			mb.thinkingIndicator = nil
+		}
+	}
+}
+
+// IsThinking returns whether the bubble is showing the thinking animation.
+func (mb *MessageBubble) IsThinking() bool {
+	return mb.isThinking
 }

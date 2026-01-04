@@ -9,6 +9,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 )
@@ -25,11 +26,87 @@ type MarkdownRenderer struct {
 	md goldmark.Markdown
 }
 
+// normalizeMarkdown converts common model output patterns to proper Markdown.
+// This helps handle cases where models use Unicode bullets or forget heading syntax.
+func normalizeMarkdown(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	inCodeBlock := false
+
+	for i, line := range lines {
+		// Track code blocks to avoid modifying code
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inCodeBlock = !inCodeBlock
+			result = append(result, line)
+			continue
+		}
+
+		if inCodeBlock {
+			result = append(result, line)
+			continue
+		}
+
+		trimmed := strings.TrimSpace(line)
+
+		// Convert Unicode bullets to Markdown list syntax
+		if strings.HasPrefix(trimmed, "•") || strings.HasPrefix(trimmed, "▪") || strings.HasPrefix(trimmed, "▸") {
+			// Preserve original indentation
+			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			// Remove the Unicode bullet and get the rest
+			rest := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(trimmed, "•"), "▪"), "▸")
+			rest = strings.TrimLeft(rest, " ")
+			line = indent + "- " + rest
+			result = append(result, line)
+			continue
+		}
+
+		// Detect potential headers: short line without punctuation, after blank, with content following
+		// Skip if line starts with a number followed by . (ordered list item)
+		isOrderedList := len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && strings.Contains(trimmed[:3], ".")
+		if len(trimmed) > 0 && len(trimmed) < 60 &&
+			!isOrderedList &&
+			!strings.HasPrefix(trimmed, "#") &&
+			!strings.HasPrefix(trimmed, "-") &&
+			!strings.HasPrefix(trimmed, "*") &&
+			!strings.HasPrefix(trimmed, ">") &&
+			!strings.HasPrefix(trimmed, "|") &&
+			!strings.HasPrefix(trimmed, "[") &&
+			!strings.Contains(trimmed, "```") &&
+			!strings.HasSuffix(trimmed, ".") &&
+			!strings.HasSuffix(trimmed, ",") &&
+			!strings.HasSuffix(trimmed, ";") &&
+			!strings.HasSuffix(trimmed, "?") &&
+			!strings.HasSuffix(trimmed, "!") &&
+			!strings.HasSuffix(trimmed, ":") {
+
+			// Check context: after blank line (or start) and has content after
+			isAfterBlank := i == 0 || strings.TrimSpace(lines[i-1]) == ""
+			hasContentAfter := false
+			if i < len(lines)-1 {
+				nextLine := strings.TrimSpace(lines[i+1])
+				// Content after should not be empty and not be another potential header
+				hasContentAfter = nextLine != "" && !strings.HasPrefix(nextLine, "#")
+			}
+
+			if isAfterBlank && hasContentAfter {
+				line = "## " + trimmed
+			}
+		}
+
+		result = append(result, line)
+	}
+
+	return strings.Join(result, "\n")
+}
+
 // NewMarkdownRenderer creates a new markdown renderer.
 func NewMarkdownRenderer() *MarkdownRenderer {
 	return &MarkdownRenderer{
 		md: goldmark.New(
-			goldmark.WithExtensions(extension.Strikethrough),
+			goldmark.WithExtensions(
+				extension.Strikethrough,
+				extension.Table,
+			),
 			goldmark.WithParserOptions(
 				parser.WithAutoHeadingID(),
 			),
@@ -41,6 +118,8 @@ func NewMarkdownRenderer() *MarkdownRenderer {
 func (r *MarkdownRenderer) ToPango(markdown string) string {
 	// First decode any HTML entities in the input
 	markdown = html.UnescapeString(markdown)
+	// Normalize common model output patterns
+	markdown = normalizeMarkdown(markdown)
 
 	source := []byte(markdown)
 	reader := text.NewReader(source)
@@ -77,6 +156,7 @@ func (r *MarkdownRenderer) renderNode(buf *bytes.Buffer, node ast.Node, source [
 		buf.WriteString("\" weight=\"bold\">")
 		r.renderChildren(buf, n, source, depth)
 		buf.WriteString("</span>")
+		buf.WriteString("\n\n")
 
 	case *ast.Paragraph:
 		r.renderChildren(buf, n, source, depth)
@@ -172,6 +252,9 @@ func (r *MarkdownRenderer) renderNode(buf *bytes.Buffer, node ast.Node, source [
 				}
 			}
 		}
+		if n.NextSibling() != nil {
+			buf.WriteString("\n\n")
+		}
 
 	case *ast.ListItem:
 		// Handled by List
@@ -180,9 +263,48 @@ func (r *MarkdownRenderer) renderNode(buf *bytes.Buffer, node ast.Node, source [
 		buf.WriteString("<i>▎ ")
 		r.renderBlockquoteContent(buf, n, source, depth)
 		buf.WriteString("</i>")
+		if n.NextSibling() != nil {
+			buf.WriteString("\n\n")
+		}
 
 	case *ast.ThematicBreak:
-		buf.WriteString("───────────────────────────────────────")
+		buf.WriteString("\n────────\n")
+
+	case *east.Table:
+		// Render table rows with pipe separators
+		for row := n.FirstChild(); row != nil; row = row.NextSibling() {
+			if tableRow, ok := row.(*east.TableRow); ok {
+				buf.WriteString("  ")
+				isFirst := true
+				for cell := tableRow.FirstChild(); cell != nil; cell = cell.NextSibling() {
+					if !isFirst {
+						buf.WriteString(" │ ")
+					}
+					r.renderChildren(buf, cell, source, depth)
+					isFirst = false
+				}
+				buf.WriteString("\n")
+			} else if tableHeader, ok := row.(*east.TableHeader); ok {
+				buf.WriteString("  ")
+				isFirst := true
+				for cell := tableHeader.FirstChild(); cell != nil; cell = cell.NextSibling() {
+					if !isFirst {
+						buf.WriteString(" │ ")
+					}
+					buf.WriteString("<b>")
+					r.renderChildren(buf, cell, source, depth)
+					buf.WriteString("</b>")
+					isFirst = false
+				}
+				buf.WriteString("\n")
+			}
+		}
+		if n.NextSibling() != nil {
+			buf.WriteString("\n")
+		}
+
+	case *east.TableHeader, *east.TableRow, *east.TableCell:
+		// Handled by Table
 
 	case *ast.String:
 		buf.WriteString(html.EscapeString(string(n.Value)))
@@ -232,6 +354,8 @@ func (r *MarkdownRenderer) renderBlockquoteContent(buf *bytes.Buffer, quote *ast
 func (r *MarkdownRenderer) Parse(markdown string) []ContentPart {
 	// First decode any HTML entities in the input
 	markdown = html.UnescapeString(markdown)
+	// Normalize common model output patterns
+	markdown = normalizeMarkdown(markdown)
 
 	source := []byte(markdown)
 	reader := text.NewReader(source)

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -37,6 +38,8 @@ CREATE TABLE IF NOT EXISTS attachments (
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message_id ON attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 `
 
 // migration adds new columns to existing databases
@@ -368,4 +371,41 @@ func (d *DB) GetMessageAttachments(messageID int64) ([]Attachment, error) {
 		attachments = append(attachments, a)
 	}
 	return attachments, rows.Err()
+}
+
+// GetAttachmentsForMessages returns attachments for multiple messages in a single query.
+// This avoids N+1 queries when loading message history.
+func (d *DB) GetAttachmentsForMessages(messageIDs []int64) (map[int64][]Attachment, error) {
+	result := make(map[int64][]Attachment)
+	if len(messageIDs) == 0 {
+		return result, nil
+	}
+
+	// Build placeholders: (?, ?, ?)
+	placeholders := make([]string, len(messageIDs))
+	args := make([]interface{}, len(messageIDs))
+	for i, id := range messageIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(
+		"SELECT id, message_id, filename, content FROM attachments WHERE message_id IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attachments: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a Attachment
+		if err := rows.Scan(&a.ID, &a.MessageID, &a.Filename, &a.Content); err != nil {
+			return nil, fmt.Errorf("failed to scan attachment: %w", err)
+		}
+		result[a.MessageID] = append(result[a.MessageID], a)
+	}
+	return result, rows.Err()
 }

@@ -1,0 +1,74 @@
+name: guanaco
+version: '0.1.0'
+summary: Chat with local AI models using Ollama
+description: |
+  Guanaco is a modern desktop application for chatting with local AI models
+  powered by Ollama. It provides a clean, native interface that integrates
+  seamlessly with your Linux desktop.
+
+  Features:
+  - Stream responses in real-time
+  - Beautiful markdown rendering with code highlighting
+  - Drag and drop documents (PDF, TXT, Markdown) for context
+  - Persistent chat history stored locally
+  - Auto-download models when not installed
+  - Native GTK4/Libadwaita interface
+
+  Requirements:
+  - Ollama must be installed and running on your system
+
+base: core24
+grade: stable
+confinement: strict
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  /usr/share/libadwaita-1:
+    symlink: $SNAP/gnome-platform/usr/share/libadwaita-1
+
+apps:
+  guanaco:
+    extensions: [gnome]
+    command: bin/guanaco
+    desktop: share/applications/com.github.storo.Guanaco.desktop
+    common-id: com.github.storo.Guanaco
+    plugs:
+      - home
+      - network
+      - network-bind
+    environment:
+      OLLAMA_HOST: "http://localhost:11434"
+
+slots:
+  guanaco:
+    interface: dbus
+    bus: session
+    name: com.github.storo.Guanaco
+
+parts:
+  guanaco:
+    plugin: go
+    source: .
+    source-type: local
+    build-snaps:
+      - go/latest/stable
+    build-packages:
+      - gcc
+      - libgtk-4-dev
+      - libadwaita-1-dev
+    stage-packages:
+      - libgtk-4-1
+      - libadwaita-1-0
+    override-build: |
+      go build -trimpath -ldflags="-s -w -X main.version=${SNAPCRAFT_PROJECT_VERSION}" -o $SNAPCRAFT_PART_INSTALL/bin/guanaco ./cmd/guanaco
+
+  desktop-files:
+    plugin: dump
+    source: assets
+    organize:
+      com.github.storo.Guanaco.desktop: share/applications/com.github.storo.Guanaco.desktop
+      com.github.storo.Guanaco.metainfo.xml: share/metainfo/com.github.storo.Guanaco.metainfo.xml
+      icons/com.github.storo.Guanaco.svg: share/icons/hicolor/scalable/apps/com.github.storo.Guanaco.svg
